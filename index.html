@@ -118,6 +118,7 @@ if ('serviceWorker' in navigator) window.addEventListener('load', function(){ na
 var Q = new URLSearchParams(location.search);
 var DAY_LEN = parseFloat(Q.get('day')) || 420;          // seconds per full day
 var T0 = Q.has('t') ? parseFloat(Q.get('t')) : 0.30;    // start time of day (morning)
+var DEBUG = Q.has('debug');
 var START_X = parseFloat(Q.get('x')) || 2260;
 var START_Z = parseFloat(Q.get('z')) || 0.58;
 var WORLD_W = 4400;
@@ -319,7 +320,7 @@ function mkChar(def){
     id: def.id, name: def.name, look: def.look, hat: def.hat,
     interests: def.interests,
     facts: def.facts.map(function(f){ return { text: f.text, topics: f.topics, shared: {} }; }),
-    smalltalk: def.smalltalk, memory: [], goods: {},
+    smalltalk: def.smalltalk, work: def.work, memory: [], goods: {},
     x: 0, z: 0, vx: 0, vz: 0,
     face: 1, visFace: 1, lastFace: 1, turnT: 0, squash: 1, step: 0,
     idleT: 0, stretchT: 0, tipT: 0, waveT: 0, hop: 0,
@@ -337,7 +338,6 @@ chars.forEach(function(c, i){
   if (pondD2(c.x, c.z) < 1.15) c.z = POND.z + POND.rz * 2.4;  // never stand in the water
 });
 var man = chars[0];   // alpha's character - the camera follows him
-var camX = clamp(man.x - W*0.5, 0, WORLD_W - W);
 var camX = clamp(man.x - W*0.5, 0, WORLD_W - W);
 
 function pickTarget(c){
@@ -457,16 +457,27 @@ function dayWord(t){
   if (t < 0.86) return 'dusk';
   return 'night';
 }
+var notesData = [];
+function renderNote(n){
+  var el = document.createElement('div');
+  el.className = 'note';
+  el.appendChild(document.createTextNode(n.text));
+  var sp = document.createElement('span');
+  sp.textContent = 'at ' + n.place + ', ' + dayWord(n.t) + ' \u00b7 why: ' + n.why;
+  el.appendChild(sp);
+  notesList.insertBefore(el, notesList.firstChild);
+  while (notesList.children.length > 8) notesList.removeChild(notesList.lastChild);
+}
 function addNote(text, why, place, t){
   noteCount++;
   var badge = document.getElementById('notes-n');
   badge.textContent = noteCount;
   badge.classList.remove('pop'); void badge.offsetWidth; badge.classList.add('pop');
-  var el = document.createElement('div');
-  el.className = 'note';
-  el.innerHTML = text + '<span>at ' + place + ', ' + dayWord(t) + ' \u00b7 why: ' + why + '</span><button class="act" type="button">intro me</button>';
-  notesList.insertBefore(el, notesList.firstChild);
-  while (notesList.children.length > 8) notesList.removeChild(notesList.lastChild);
+  var n = { text: text, why: why, place: place, t: t };
+  notesData.unshift(n);
+  if (notesData.length > 8) notesData.length = 8;
+  renderNote(n);
+  saveWorld();
 }
 
 // ---------- projection ----------
@@ -643,7 +654,7 @@ function startMeet(a, b, now, t){
   a.meetLead = true; b.meetLead = false;
   a.vx = a.vz = 0; b.vx = b.vz = 0;
   var mid = (a.x + b.x) / 2, mz = (a.z + b.z) / 2;
-  a.x = mid - 34; b.x = mid + 34; a.z = mz; b.z = mz;
+  a.meetSpot = { x: mid - 34, z: mz }; b.meetSpot = { x: mid + 34, z: mz };
   a.face = 1; a.lastFace = 1; a.visFace = 1;
   b.face = -1; b.lastFace = -1; b.visFace = -1;
   lastMeetInfo = { a: a, b: b, x: mid, until: now + 7000 };
@@ -655,7 +666,7 @@ function startMeet(a, b, now, t){
 function endMeet(c, now){
   c.state = 'pause';
   c.pauseUntil = now + 500 + Math.random()*700;
-  c.meetWith = null; c.beat = 0; c.meetT = 0; c.place = null; c.resume = null; c.idleT = 0;
+  c.meetWith = null; c.beat = 0; c.meetT = 0; c.place = null; c.resume = null; c.idleT = 0; c.meetSpot = null;
 }
 // under the hood of every meeting: trade candidate facts, filter hard, report only what matters
 var WHY = {
@@ -714,49 +725,81 @@ var PROJECTS = [
 ];
 PROJECTS.forEach(function(pj){ pj.done = false; });
 var buildParts = [], forcedProject = null;
-// world age - the valley's own clock. persists across visits; the build schedule runs on it,
-// so short glances still accrue toward the next build instead of resetting it.
-var worldAge = 45 + Math.random()*30, lastSeen = 0;
-try {
-  var wa = parseFloat(localStorage.getItem('valley-age') || '0');
-  if (wa > 0) worldAge = wa;
-  lastSeen = parseFloat(localStorage.getItem('valley-seen') || '0') || 0;
-} catch(e){}
-if (lastSeen > 0){
-  var awaySec = Math.min((Date.now() - lastSeen)/1000, 8*3600);
-  if (awaySec > 0) worldAge += awaySec;
+// ---------- the save file: one versioned object - the society, not just the objects ----------
+var HEAT_W = 88, HEAT_H = 8;
+var SAVE_KEY = 'valley-save';
+function defaultSave(){
+  return { v: 1, age: 0, seen: 0, next: 0, t: null, built: [], goods: null, heat: null,
+           found: [], notes: [], noteCount: 0, mem: {}, shared: {} };
 }
+function loadSave(){
+  var s = null;
+  try { s = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null'); } catch(e){}
+  if (s && s.v === 1 && Array.isArray(s.built)) return s;
+  // adopt the loose keys from before the save file existed
+  s = defaultSave();
+  try {
+    s.age = parseFloat(localStorage.getItem('valley-age') || '0') || 0;
+    s.seen = parseFloat(localStorage.getItem('valley-seen') || '0') || 0;
+    s.next = parseFloat(localStorage.getItem('valley-next') || '0') || 0;
+    var lb = JSON.parse(localStorage.getItem('valley-built') || '[]');
+    if (Array.isArray(lb)) s.built = lb;
+    var lg = JSON.parse(localStorage.getItem('valley-goods') || 'null');
+    if (lg) s.goods = lg;
+    var lh = JSON.parse(localStorage.getItem('valley-heat') || 'null');
+    if (lh && lh.length === HEAT_W * HEAT_H) s.heat = lh;
+  } catch(e){}
+  return s;
+}
+var save = loadSave();
+if (!Array.isArray(save.built)) save.built = [];
+if (!Array.isArray(save.notes)) save.notes = [];
+// world age - the valley's own clock. the build schedule runs on it,
+// so short glances still accrue toward the next build instead of resetting it.
+var worldAge = 45 + Math.random()*30;
+if (save.age > 0) worldAge = save.age;
+var awaySec = 0;
+if (save.seen > 0) awaySec = Math.min(Math.max((Date.now() - save.seen)/1000, 0), 8*3600);
+if (awaySec > 0) worldAge += awaySec;
+// the day continues where it left off instead of restarting at the same morning
+if (save.t != null && !Q.has('t')) T0 = ((save.t + awaySec / DAY_LEN) % 1 + 1) % 1;
 var build = { active: null, nextAt: 75 + Math.random()*60 };
-try {
-  var savedNext = parseFloat(localStorage.getItem('valley-next') || '0');
-  if (savedNext > 0) build.nextAt = savedNext;
-} catch(e){}
+if (save.next > 0) build.nextAt = save.next;
+var currentT = T0;
+// worn paths - the valley remembers where they walk
+var heat = new Array(HEAT_W * HEAT_H).fill(0);
+if (save.heat && save.heat.length === heat.length) heat = save.heat;
+var heatT = 0, heatSaveT = 0, worldSaveT = 0;
 function saveWorld(){
   try {
-    localStorage.setItem('valley-age', String(Math.round(worldAge)));
-    localStorage.setItem('valley-seen', String(Date.now()));
-    localStorage.setItem('valley-next', String(Math.round(build.nextAt)));
+    save.age = Math.round(worldAge);
+    save.seen = Date.now();
+    save.next = Math.round(build.nextAt);
+    save.t = currentT;
+    save.built = PROJECTS.filter(function(pj){ return pj.done; }).map(function(pj){ return pj.id; });
+    var inv = {};
+    chars.forEach(function(c){ inv[c.id] = c.goods; });
+    save.goods = { inv: inv, stall: stallStock, trades: tradeCount };
+    save.heat = heat;
+    save.found = PLACES.filter(function(p){ return p.found; }).map(function(p){ return p.id; });
+    save.mem = {}; save.shared = {};
+    chars.forEach(function(c){
+      save.mem[c.id] = c.memory;
+      save.shared[c.id] = c.facts.map(function(f){ return f.shared; });
+    });
+    save.notes = notesData.slice(0, 8);
+    save.noteCount = noteCount;
+    localStorage.setItem(SAVE_KEY, JSON.stringify(save));
   } catch(e){}
 }
-// worn paths - the valley remembers where they walk
-var HEAT_W = 88, HEAT_H = 8;
-var heat = new Array(HEAT_W * HEAT_H).fill(0);
-try { var hh = JSON.parse(localStorage.getItem('valley-heat') || 'null'); if (hh && hh.length === heat.length) heat = hh; } catch(e){}
-var heatT = 0, heatSaveT = 0, worldSaveT = 0;
 document.addEventListener('visibilitychange', function(){ if (document.hidden) saveWorld(); });
 window.addEventListener('pagehide', saveWorld);
-if (/[?&]fresh=1/.test(location.search)){ try { localStorage.removeItem('valley-built'); localStorage.removeItem('valley-goods'); localStorage.removeItem('valley-heat'); localStorage.removeItem('valley-age'); localStorage.removeItem('valley-seen'); localStorage.removeItem('valley-next'); heat = new Array(HEAT_W * HEAT_H).fill(0); worldAge = 45 + Math.random()*30; build.nextAt = 75 + Math.random()*60; } catch(e){} }
-try {
-  JSON.parse(localStorage.getItem('valley-built') || '[]').forEach(function(id){
-    var pj = PROJECTS.filter(function(k){ return k.id === id; })[0];
-    if (pj) pj.done = true;
-  });
-} catch(e){}
-function saveBuilt(){
-  try { localStorage.setItem('valley-built', JSON.stringify(PROJECTS.filter(function(pj){ return pj.done; }).map(function(pj){ return pj.id; }))); } catch(e){}
-}
-var savedGoodsEarly = null;
-try { savedGoodsEarly = JSON.parse(localStorage.getItem('valley-goods') || 'null'); } catch(e){}
+if (/[?&]fresh=1/.test(location.search)){ try { localStorage.removeItem(SAVE_KEY); localStorage.removeItem('valley-built'); localStorage.removeItem('valley-goods'); localStorage.removeItem('valley-heat'); localStorage.removeItem('valley-age'); localStorage.removeItem('valley-seen'); localStorage.removeItem('valley-next'); } catch(e){} save = defaultSave(); heat = new Array(HEAT_W * HEAT_H).fill(0); worldAge = 45 + Math.random()*30; build.nextAt = 75 + Math.random()*60; }
+save.built.forEach(function(id){
+  var pj = PROJECTS.filter(function(k){ return k.id === id; })[0];
+  if (pj) pj.done = true;
+});
+function saveBuilt(){ saveWorld(); }
 function dustPoof(pj){
   for (var di = 0; di < 10; di++) buildParts.push({ x: pj.x + (Math.random()-0.5)*50, z: pj.z, y: -4, vy: -(12+Math.random()*20), life: 0.5+Math.random()*0.6, s: 2+Math.random()*2.5 });
 }
@@ -765,11 +808,34 @@ function dustPoof(pj){
 var stallStock = {};
 var tradeCount = 0;
 var tradeFly = [], goodsPops = [];
-if (savedGoodsEarly){
-  if (savedGoodsEarly.stall) stallStock = savedGoodsEarly.stall;
-  if (savedGoodsEarly.trades) tradeCount = savedGoodsEarly.trades;
-  if (savedGoodsEarly.inv) chars.forEach(function(c){ if (savedGoodsEarly.inv[c.id]) c.goods = savedGoodsEarly.inv[c.id]; });
+if (save.goods){
+  if (save.goods.stall) Object.keys(save.goods.stall).forEach(function(k){
+    var v = save.goods.stall[k];
+    if (typeof v === 'number' && !isNaN(v) && v > 0) stallStock[k] = v;
+  });
+  if (save.goods.trades) tradeCount = save.goods.trades;
+  if (save.goods.inv) chars.forEach(function(c){
+    var gi = save.goods.inv[c.id];
+    if (gi) Object.keys(gi).forEach(function(k){
+      var v = gi[k];
+      if (typeof v === 'number' && !isNaN(v) && v > 0) c.goods[k] = v;   // drops legacy null/NaN pollution
+    });
+  });
 }
+// the society remembers: who met who, what was shared, what was found, what was noted
+chars.forEach(function(c){
+  if (save.mem[c.id]) c.memory = save.mem[c.id];
+  if (save.shared[c.id]) c.facts.forEach(function(f, fi){ if (save.shared[c.id][fi]) f.shared = save.shared[c.id][fi]; });
+});
+save.found.forEach(function(id){
+  var p = PLACES.filter(function(k){ return k.id === id; })[0];
+  if (p && !p.found){ p.found = true; found++; }
+});
+document.getElementById('found-n').textContent = found;
+noteCount = save.noteCount || 0;
+if (noteCount > 0) document.getElementById('notes-n').textContent = noteCount;
+notesData = save.notes.slice(0, 8);
+save.notes.slice(0, 8).reverse().forEach(renderNote);
 
 // while you were away - work that finished off-screen is there when you come back
 (function(){
@@ -805,13 +871,7 @@ var CATCH_LINES = {
   wood:   ['good grain.','that will do.'],
   craft:  ['coming along.','almost there.']
 };
-function saveGoods(){
-  try {
-    var inv = {};
-    chars.forEach(function(c){ inv[c.id] = c.goods; });
-    localStorage.setItem('valley-goods', JSON.stringify({ inv: inv, stall: stallStock, trades: tradeCount }));
-  } catch(e){}
-}
+function saveGoods(){ saveWorld(); }
 function stallDone(){
   var pj = PROJECTS.filter(function(k){ return k.id === 'stall'; })[0];
   return pj && pj.done;
@@ -922,9 +982,10 @@ function updateChar(c, dt, now, t){
     c.laborT -= dt;
     c.workT += dt;
     if (Math.random() < dt * 0.09){
-      c.goods[c.laborType] = (c.goods[c.laborType] || 0) + 1;
+      var goodKind = c.laborType === 'forage' ? 'berries' : c.laborType;
+      c.goods[goodKind] = (c.goods[goodKind] || 0) + 1;
       saveGoods();
-      goodsPops.push({ x: c.x, z: c.z, kind: c.laborType, t: 0 });
+      goodsPops.push({ x: c.x, z: c.z, kind: goodKind, t: 0 });
       if (c.laborType === 'fish') ripples.push({ r: 6, a: 0.6, x: -100 + Math.random()*50, y: 8 + Math.random()*8 });
       if (Math.random() < 0.3) sayFor(c, CATCH_LINES[c.laborType][Math.floor(Math.random()*CATCH_LINES[c.laborType].length)], 1800);
     }
@@ -935,6 +996,11 @@ function updateChar(c, dt, now, t){
     var o = c.meetWith;
     if (!o || o.state !== 'meet'){ endMeet(c, now); return; }
     c.meetT += dt;
+    if (c.meetSpot){
+      var msp = c.meetSpot, mk2 = Math.min(1, dt * 5);
+      c.x += (msp.x - c.x) * mk2; c.z += (msp.z - c.z) * mk2;
+      if (Math.abs(msp.x - c.x) < 2 && Math.abs(msp.z - c.z) < 0.01) c.meetSpot = null;
+    }
     if (c.meetT > 1.5 && c.beat < 1){
       c.beat = 1;
       if (!c.meetLead) sayFor(c, c.smalltalk[Math.floor(Math.random()*c.smalltalk.length)], 2500);
@@ -1085,6 +1151,7 @@ function frame(now){
   worldSaveT += dt;
   if (worldSaveT > 15){ worldSaveT = 0; saveWorld(); }
   var t = ((T0 + time / DAY_LEN) % 1 + 1) % 1;
+  currentT = t;
   var pal = palAt(t);
   var dark = pal.darkRaw;
   var wind = Math.sin(time * 0.23) * 0.5 + 0.5;
@@ -1122,8 +1189,6 @@ function frame(now){
       }
     });
   }
-  heatSaveT += dt;
-  if (heatSaveT > 30){ heatSaveT = 0; try { localStorage.setItem('valley-heat', JSON.stringify(heat)); } catch(e){} }
 
   // ---- building projects - the crew gathers, works, and the world keeps what they make ----
   if (!build.active && worldAge > build.nextAt){
@@ -1132,11 +1197,20 @@ function frame(now){
       var proj = forcedProject || remaining[0];
       var wasForced = !!forcedProject;
       forcedProject = null;
-      if (!wasForced && !civReady(proj)){ build.nextAt = worldAge + 90; }
+      if (!wasForced && !civReady(proj)){
+        build.nextAt = worldAge + 90;
+        if (!proj._noted){
+          proj._noted = true;
+          addNote('the camp is gathering ' + (proj.cost ? Object.keys(proj.cost)[0] : 'goods') + ' for ' + proj.name + '.', 'civilization', 'the valley', currentT);
+        }
+      }
       else {
       var others = chars.filter(function(c2){ return c2 !== man && c2.state !== 'meet' && c2.state !== 'build' && !c2.buildRole; })
         .sort(function(a2, b2){ return Math.abs(a2.x - proj.x) - Math.abs(b2.x - proj.x); });
-      var crew = [man].concat(others.slice(0, 2));
+      // alpha's character joins when he is close enough to wander over - otherwise the camp manages without him
+      var crew = (Math.abs(man.x - proj.x) < 800 && man.state !== 'meet')
+        ? [man].concat(others.slice(0, 2))
+        : others.slice(0, 3);
       build.active = { proj: proj, crew: crew, stage: 'gather', t: 0 };
       crew.forEach(function(c2){
         c2.buildRole = true;
@@ -1175,7 +1249,7 @@ function frame(now){
         saveBuilt();
         dustPoof(B.proj);
         B.crew.forEach(function(c2){ c2.state = 'pause'; c2.pauseUntil = now + 1800; c2.hop = 1; c2.buildRole = false; c2.idleT = 0; });
-        sayFor(man, B.proj.cost ? 'the valley grows.' : 'looks right.', 2400);
+        sayFor(B.crew[0], B.proj.cost ? 'the valley grows.' : 'looks right.', 2400);
         build.active = null;
         build.nextAt = worldAge + (B.proj.cost ? 720 + Math.random()*360 : 240 + Math.random()*180);
         saveWorld();
@@ -1806,6 +1880,13 @@ function frame(now){
       var x = c.x - camX; if (x < -60 || x > W + 60) return;
       var y = gy(c.z) - Math.sin(c.hop*Math.PI)*16*zs(c.z), s = zs(c.z) * 1.3;
       drawMan(x, y, s, c.visFace, c.step, c.mode, false, c.mode === 'forage' ? 0.84 : c.squash, c.stretchAmt, c.tipAmt, c.look, c.hat, c.waveAmt);
+      if (Math.abs(c.x - man.x) < 520 || c.state === 'meet'){
+        var na = c.state === 'meet' ? 0.7 : 0.28 + 0.5 * (1 - Math.abs(c.x - man.x) / 520);
+        g.font = 'italic ' + Math.max(9, Math.round(11 * s)) + 'px Georgia, serif';
+        g.textAlign = 'center';
+        g.fillStyle = 'rgba(74,64,56,' + na.toFixed(3) + ')';
+        g.fillText(c.name, x, y - 62 * s);
+      }
     }});
   });
   drawList.sort(function(a,b){ return a.z - b.z; });
@@ -1899,6 +1980,7 @@ function frame(now){
     bb.el.style.top = (gy(c.z) - 96 * zs(c.z)) + 'px';
   });
 
+  if (DEBUG){
   window.__dock = function(){
     var p = PLACES.filter(function(k){ return k.id === 'dock'; })[0];
     man.state = 'stroll'; man.place = p; man.tx = DOCK.bx; man.tz = DOCK.bz; man.speed = 66; man.pauseUntil = 0;
@@ -1949,7 +2031,8 @@ function frame(now){
     o.tx = man.x + 40; o.tz = man.z; o.speed = 110;
     man.state = 'pause'; man.pauseUntil = performance.now() + 30000; man.resume = null; man.vx = man.vz = 0;
   };
-  window.__dbg = chars.map(function(c){ return c.id + ':' + c.state + '@' + Math.round(c.x) + ',' + c.z.toFixed(2); }).join(' ') + ' | found=' + found + ' meets=' + meetCount + ' notes=' + noteCount + ' t=' + t.toFixed(2) + ' pd=' + pondD2(man.x, man.z).toFixed(2);
+  }
+  window.__dbg = DEBUG ? chars.map(function(c){ return c.id + ':' + c.state + '@' + Math.round(c.x) + ',' + c.z.toFixed(2); }).join(' ') + ' | found=' + found + ' meets=' + meetCount + ' notes=' + noteCount + ' t=' + t.toFixed(2) + ' pd=' + pondD2(man.x, man.z).toFixed(2) : '';
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
