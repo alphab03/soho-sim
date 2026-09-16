@@ -872,7 +872,7 @@ function payCost(proj){
       chars.forEach(function(c){
         if (need <= 0) return;
         var take = Math.min(c.goods[k] || 0, need);
-        c.goods[k] -= take; need -= take;
+        if (take > 0){ c.goods[k] = (c.goods[k] || 0) - take; need -= take; }
       });
     }
   }
