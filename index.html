@@ -374,6 +374,11 @@ function pickTarget(c){
 
 function newLeg(c){
   c.state = 'stroll';
+  // crew members always head back to the site, whatever interrupted them
+  if (c.buildRole && build.active && c.buildSpot){
+    c.tx = c.buildSpot.x; c.tz = c.buildSpot.z; c.vias = []; c.place = null; c.speed = 78;
+    return;
+  }
   // stock run - surplus goods go to the market stall
   if (stallDone() && Math.random() < 0.3 && hasSurplus(c)){
     c.stockRun = true;
@@ -700,12 +705,47 @@ var PROJECTS = [
   { id:'cairn',    name:'a cairn',    x: 3700, z: 0.34 },   // at the overlook
   { id:'lantern',  name:'a lantern',  x: 1660, z: 0.55 },   // at the dock approach
   { id:'blanket',  name:'a blanket',  x: 2140, z: 0.62 },   // pond shore
-  { id:'signpost', name:'a signpost', x: 2010, z: 0.66 }    // near the bridge
+  { id:'signpost', name:'a signpost', x: 2010, z: 0.66 },   // near the bridge
+  // ---- civilization: bigger works, paid for in goods, earned over days ----
+  { id:'hearth', name:'a hearth', x: 3050, z: 0.60, cost: { wood: 3 } },        // the campfire grows a chimney-crane
+  { id:'hut',    name:'a hut',    x: 1250, z: 0.40, cost: { wood: 6 } },        // first roof, near the oak
+  { id:'well',   name:'a well',   x: 2600, z: 0.45, cost: { wood: 2 } },
+  { id:'stall2', name:'a second stall', x: 2540, z: 0.62, cost: { wood: 3 }, needsTrades: 4 }
 ];
 PROJECTS.forEach(function(pj){ pj.done = false; });
 var buildParts = [], forcedProject = null;
+// world age - the valley's own clock. persists across visits; the build schedule runs on it,
+// so short glances still accrue toward the next build instead of resetting it.
+var worldAge = 45 + Math.random()*30, lastSeen = 0;
+try {
+  var wa = parseFloat(localStorage.getItem('valley-age') || '0');
+  if (wa > 0) worldAge = wa;
+  lastSeen = parseFloat(localStorage.getItem('valley-seen') || '0') || 0;
+} catch(e){}
+if (lastSeen > 0){
+  var awaySec = Math.min((Date.now() - lastSeen)/1000, 8*3600);
+  if (awaySec > 0) worldAge += awaySec;
+}
 var build = { active: null, nextAt: 75 + Math.random()*60 };
-if (/[?&]fresh=1/.test(location.search)){ try { localStorage.removeItem('valley-built'); localStorage.removeItem('valley-goods'); } catch(e){} }
+try {
+  var savedNext = parseFloat(localStorage.getItem('valley-next') || '0');
+  if (savedNext > 0) build.nextAt = savedNext;
+} catch(e){}
+function saveWorld(){
+  try {
+    localStorage.setItem('valley-age', String(Math.round(worldAge)));
+    localStorage.setItem('valley-seen', String(Date.now()));
+    localStorage.setItem('valley-next', String(Math.round(build.nextAt)));
+  } catch(e){}
+}
+// worn paths - the valley remembers where they walk
+var HEAT_W = 88, HEAT_H = 8;
+var heat = new Array(HEAT_W * HEAT_H).fill(0);
+try { var hh = JSON.parse(localStorage.getItem('valley-heat') || 'null'); if (hh && hh.length === heat.length) heat = hh; } catch(e){}
+var heatT = 0, heatSaveT = 0, worldSaveT = 0;
+document.addEventListener('visibilitychange', function(){ if (document.hidden) saveWorld(); });
+window.addEventListener('pagehide', saveWorld);
+if (/[?&]fresh=1/.test(location.search)){ try { localStorage.removeItem('valley-built'); localStorage.removeItem('valley-goods'); localStorage.removeItem('valley-heat'); localStorage.removeItem('valley-age'); localStorage.removeItem('valley-seen'); localStorage.removeItem('valley-next'); heat = new Array(HEAT_W * HEAT_H).fill(0); worldAge = 45 + Math.random()*30; build.nextAt = 75 + Math.random()*60; } catch(e){} }
 try {
   JSON.parse(localStorage.getItem('valley-built') || '[]').forEach(function(id){
     var pj = PROJECTS.filter(function(k){ return k.id === id; })[0];
@@ -723,11 +763,33 @@ function dustPoof(pj){
 
 // ---------- the agora: labor, goods, trade ----------
 var stallStock = {};
+var tradeCount = 0;
 var tradeFly = [], goodsPops = [];
 if (savedGoodsEarly){
   if (savedGoodsEarly.stall) stallStock = savedGoodsEarly.stall;
+  if (savedGoodsEarly.trades) tradeCount = savedGoodsEarly.trades;
   if (savedGoodsEarly.inv) chars.forEach(function(c){ if (savedGoodsEarly.inv[c.id]) c.goods = savedGoodsEarly.inv[c.id]; });
 }
+
+// while you were away - work that finished off-screen is there when you come back
+(function(){
+  var awayBuilt = [], guard = 0;
+  while (guard++ < 12){
+    var remaining = PROJECTS.filter(function(pj){ return !pj.done; });
+    if (!remaining.length) break;
+    var proj = remaining[0];
+    if (build.nextAt > worldAge) break;
+    if (!civReady(proj)){ build.nextAt = worldAge + 90; break; }
+    proj.done = true;
+    payCost(proj);
+    awayBuilt.push(proj.name);
+    build.nextAt += proj.cost ? 900 : 330;
+  }
+  if (awayBuilt.length){
+    saveBuilt();
+    addNote('while you were away, they built ' + awayBuilt.join(' and ') + '.', 'the valley kept going', 'the valley', 0.5);
+  }
+})();
 var WANTS = {
   you:   ['fish','berries','wood','craft'],
   theo:  ['wood','craft'],
@@ -747,7 +809,7 @@ function saveGoods(){
   try {
     var inv = {};
     chars.forEach(function(c){ inv[c.id] = c.goods; });
-    localStorage.setItem('valley-goods', JSON.stringify({ inv: inv, stall: stallStock }));
+    localStorage.setItem('valley-goods', JSON.stringify({ inv: inv, stall: stallStock, trades: tradeCount }));
   } catch(e){}
 }
 function stallDone(){
@@ -788,6 +850,34 @@ function doStock(c){
   });
   if (moved){ saveGoods(); sayFor(c, 'stocking up.', 2000); }
 }
+function civReady(proj){
+  if (proj.needsTrades && tradeCount < proj.needsTrades) return false;
+  if (proj.cost){
+    var avail = {};
+    ['fish','berries','wood','craft'].forEach(function(k){
+      avail[k] = stallStock[k] || 0;
+      chars.forEach(function(c){ avail[k] += c.goods[k] || 0; });
+    });
+    for (var k2 in proj.cost){ if ((avail[k2] || 0) < proj.cost[k2]) return false; }
+  }
+  return true;
+}
+function payCost(proj){
+  if (!proj.cost) return;
+  for (var k in proj.cost){
+    var need = proj.cost[k];
+    var fromStall = Math.min(stallStock[k] || 0, need);
+    stallStock[k] = (stallStock[k] || 0) - fromStall; need -= fromStall;
+    if (need > 0){
+      chars.forEach(function(c){
+        if (need <= 0) return;
+        var take = Math.min(c.goods[k] || 0, need);
+        c.goods[k] -= take; need -= take;
+      });
+    }
+  }
+  saveGoods();
+}
 function resolveTrade(a, b, now){
   [[a,b],[b,a]].forEach(function(pair){
     var from = pair[0], to = pair[1];
@@ -797,6 +887,7 @@ function resolveTrade(a, b, now){
       if ((from.goods[k] || 0) > 1){
         from.goods[k]--; to.goods[k] = (to.goods[k] || 0) + 1;
         tradeFly.push({ a: from, b: to, kind: k, t: 0 });
+        tradeCount++; saveGoods();
         if (Math.random() < 0.5) sayFor(from, 'for you.', 1600);
         saveGoods();
         break;
@@ -879,7 +970,7 @@ function updateChar(c, dt, now, t){
     var aimZ = c.vias.length ? c.vias[0].z : c.tz;
     var dx = aimX - c.x, dz = aimZ - c.z;
     var dist = Math.hypot(c.tx - c.x, (c.tz - c.z) * 900); // z compressed space
-    if (dist < 26 && !c.vias.length && c.buildRole){
+    if (dist < 40 && !c.vias.length && c.buildRole){
       c.state = 'pause'; c.pauseUntil = now + 90000; c.vx = 0; c.vz = 0;  // crew waits at the site
     } else if (dist < ((c.workLeg === 'fish' || (c.place && c.place.id === 'dock')) ? 85 : 26) && !c.vias.length){
       var pool = thoughtPool(t);
@@ -990,6 +1081,9 @@ function frame(now){
   var dt = Math.min((now - last)/1000, 0.05);
   last = now;
   time += dt;
+  worldAge += dt;
+  worldSaveT += dt;
+  if (worldSaveT > 15){ worldSaveT = 0; saveWorld(); }
   var t = ((T0 + time / DAY_LEN) % 1 + 1) % 1;
   var pal = palAt(t);
   var dark = pal.darkRaw;
@@ -1015,12 +1109,31 @@ function frame(now){
   // ---- characters ----
   chars.forEach(function(c){ updateChar(c, dt, now, t); });
 
+  // paths wear in where feet actually go
+  heatT += dt;
+  if (heatT > 2){
+    heatT = 0;
+    chars.forEach(function(c){
+      if (c.spd > 10){
+        var bx2 = clamp(Math.floor(c.x / 50), 0, HEAT_W - 1);
+        var bz2 = clamp(Math.floor((c.z - 0.15) / 0.1), 0, HEAT_H - 1);
+        var hidx = bz2 * HEAT_W + bx2;
+        if (heat[hidx] < 240) heat[hidx]++;
+      }
+    });
+  }
+  heatSaveT += dt;
+  if (heatSaveT > 30){ heatSaveT = 0; try { localStorage.setItem('valley-heat', JSON.stringify(heat)); } catch(e){} }
+
   // ---- building projects - the crew gathers, works, and the world keeps what they make ----
-  if (!build.active && time > build.nextAt){
+  if (!build.active && worldAge > build.nextAt){
     var remaining = PROJECTS.filter(function(pj){ return !pj.done; });
     if (remaining.length){
       var proj = forcedProject || remaining[0];
+      var wasForced = !!forcedProject;
       forcedProject = null;
+      if (!wasForced && !civReady(proj)){ build.nextAt = worldAge + 90; }
+      else {
       var others = chars.filter(function(c2){ return c2 !== man && c2.state !== 'meet' && c2.state !== 'build' && !c2.buildRole; })
         .sort(function(a2, b2){ return Math.abs(a2.x - proj.x) - Math.abs(b2.x - proj.x); });
       var crew = [man].concat(others.slice(0, 2));
@@ -1034,13 +1147,14 @@ function frame(now){
         c2.vias = []; c2.speed = 74 + Math.random()*18;
         c2.buildSpot = { x: c2.tx, z: c2.tz };
       });
-    } else build.nextAt = time + 600;
+      }
+    } else build.nextAt = worldAge + 600;
   }
   if (build.active){
     var B = build.active;
     if (B.stage === 'gather'){
       B.t += dt;
-      var arrived = B.crew.every(function(c2){ return Math.abs(c2.x - c2.buildSpot.x) < 44 && Math.abs(c2.z - c2.buildSpot.z) < 0.09; });
+      var arrived = B.crew.every(function(c2){ return Math.hypot(c2.x - c2.buildSpot.x, (c2.z - c2.buildSpot.z) * 900) < 56; });
       if (arrived){
         B.stage = 'work'; B.t = 0;
         B.crew.forEach(function(c2){
@@ -1050,19 +1164,21 @@ function frame(now){
         sayFor(B.crew[Math.floor(Math.random()*B.crew.length)], 'let us build ' + B.proj.name + '.', 2600);
       } else if (B.t > 75){
         B.crew.forEach(function(c2){ c2.buildRole = false; c2.pauseUntil = Math.min(c2.pauseUntil, now + 400); });
-        build.active = null; build.nextAt = time + 120;
+        build.active = null; build.nextAt = worldAge + 120;
       }
     } else if (B.stage === 'work'){
       B.t += dt;
       if (Math.random() < 0.35) buildParts.push({ x: B.proj.x + (Math.random()-0.5)*44, z: B.proj.z, y: 0, vy: -(8+Math.random()*12), life: 0.4+Math.random()*0.4, s: 1.5+Math.random()*2 });
       if (B.t > 14){
         B.proj.done = true;
+        payCost(B.proj);
         saveBuilt();
         dustPoof(B.proj);
         B.crew.forEach(function(c2){ c2.state = 'pause'; c2.pauseUntil = now + 1800; c2.hop = 1; c2.buildRole = false; c2.idleT = 0; });
-        sayFor(man, 'looks right.', 2400);
+        sayFor(man, B.proj.cost ? 'the valley grows.' : 'looks right.', 2400);
         build.active = null;
-        build.nextAt = time + 240 + Math.random()*180;
+        build.nextAt = worldAge + (B.proj.cost ? 720 + Math.random()*360 : 240 + Math.random()*180);
+        saveWorld();
       }
     }
   }
@@ -1290,6 +1406,16 @@ function frame(now){
     if (px === -40) g.moveTo(px, py); else g.lineTo(px, py);
   }
   g.stroke();
+  // worn paths - faint at first, darker where they always walk
+  for (var hcell = 0; hcell < heat.length; hcell++){
+    var hv = heat[hcell];
+    if (hv < 12) continue;
+    var hxs = (hcell % HEAT_W) * 50 + 25 - camX;
+    if (hxs < -50 || hxs > W + 50) continue;
+    var hzs = 0.15 + Math.floor(hcell / HEAT_W) * 0.1 + 0.05;
+    g.fillStyle = 'rgba(160,125,85,' + Math.min(0.20, hv * 0.0012).toFixed(3) + ')';
+    g.beginPath(); g.ellipse(hxs, gy(hzs), 30 * zs(hzs), 7 * zs(hzs), 0, 0, 6.29); g.fill();
+  }
 
   // creek - ribbon from the pond toward the camera, flowing glints
   (function(){
@@ -1552,6 +1678,64 @@ function frame(now){
             si2++;
           }
         });
+      } else if (pj.id === 'hearth'){
+        // a tripod crane over the campfire, kettle hanging - the camp learns to cook
+        g.strokeStyle = '#5d4630'; g.lineWidth = 2.6*s; g.lineCap = 'round';
+        g.beginPath(); g.moveTo(x - 20*s, y); g.lineTo(x, y - 40*s); g.stroke();
+        g.beginPath(); g.moveTo(x + 20*s, y); g.lineTo(x, y - 40*s); g.stroke();
+        g.beginPath(); g.moveTo(x, y - 40*s); g.lineTo(x, y - 26*s); g.stroke();
+        g.fillStyle = '#4a4038';
+        g.beginPath(); g.ellipse(x, y - 22*s, 7*s, 5.5*s, 0, 0, 6.29); g.fill();
+        g.strokeStyle = '#4a4038'; g.lineWidth = 1.4*s;
+        g.beginPath(); g.arc(x, y - 27*s, 5*s, Math.PI, 0); g.stroke();
+      } else if (pj.id === 'hut'){
+        // the first roof - a little a-frame, window warm at night
+        g.fillStyle = '#8a6a4a';
+        g.beginPath(); g.moveTo(x - 34*s, y); g.lineTo(x, y - 46*s); g.lineTo(x + 34*s, y); g.closePath(); g.fill();
+        g.strokeStyle = '#5d4630'; g.lineWidth = 3*s; g.lineCap = 'round';
+        g.beginPath(); g.moveTo(x - 38*s, y); g.lineTo(x, y - 50*s); g.lineTo(x + 38*s, y); g.stroke();
+        g.fillStyle = '#4a3a2c';
+        roundRect(x - 7*s, y - 18*s, 14*s, 18*s, 2*s); g.fill();
+        var night = (t > 0.8 || t < 0.12);
+        g.fillStyle = night ? '#f4c76a' : '#e8ddc8';
+        roundRect(x + 12*s, y - 26*s, 9*s, 9*s, 1.5*s); g.fill();
+        if (night){
+          g.fillStyle = 'rgba(244,199,106,0.18)';
+          g.beginPath(); g.arc(x + 16*s, y - 22*s, 16*s, 0, 6.29); g.fill();
+        }
+      } else if (pj.id === 'well'){
+        g.fillStyle = '#9a9186';
+        g.beginPath(); g.ellipse(x, y - 4*s, 20*s, 8*s, 0, 0, 6.29); g.fill();
+        g.fillStyle = '#7d7468';
+        g.beginPath(); g.ellipse(x, y - 7*s, 16*s, 6*s, 0, 0, 6.29); g.fill();
+        g.fillStyle = '#3a4a52';
+        g.beginPath(); g.ellipse(x, y - 7*s, 11*s, 4*s, 0, 0, 6.29); g.fill();
+        g.strokeStyle = '#5d4630'; g.lineWidth = 2.6*s; g.lineCap = 'round';
+        g.beginPath(); g.moveTo(x - 16*s, y - 6*s); g.lineTo(x - 16*s, y - 34*s); g.stroke();
+        g.beginPath(); g.moveTo(x + 16*s, y - 6*s); g.lineTo(x + 16*s, y - 34*s); g.stroke();
+        g.fillStyle = '#8a6a4a';
+        g.beginPath(); g.moveTo(x - 22*s, y - 34*s); g.lineTo(x, y - 44*s); g.lineTo(x + 22*s, y - 34*s); g.closePath(); g.fill();
+        g.strokeStyle = '#6d5138'; g.lineWidth = 1.4*s;
+        g.beginPath(); g.moveTo(x, y - 38*s); g.lineTo(x, y - 14*s); g.stroke();
+        g.fillStyle = '#8a6a4a';
+        roundRect(x - 3.5*s, y - 14*s, 7*s, 6*s, 1*s); g.fill();
+      } else if (pj.id === 'stall2'){
+        g.strokeStyle = '#5d4630'; g.lineWidth = 3.2*s; g.lineCap = 'round';
+        g.beginPath(); g.moveTo(x - 30*s, y); g.lineTo(x - 30*s, y - 40*s); g.stroke();
+        g.beginPath(); g.moveTo(x + 30*s, y); g.lineTo(x + 30*s, y - 40*s); g.stroke();
+        g.fillStyle = '#7d9b76';
+        g.beginPath(); g.moveTo(x - 38*s, y - 40*s); g.lineTo(x + 38*s, y - 40*s); g.lineTo(x + 30*s, y - 51*s); g.lineTo(x - 30*s, y - 51*s); g.closePath(); g.fill();
+        g.fillStyle = 'rgba(255,253,248,0.75)';
+        for (var stj = -1; stj <= 1; stj++){
+          g.beginPath(); g.moveTo(x + stj*24*s - 5*s, y - 40*s); g.lineTo(x + stj*24*s + 5*s, y - 40*s); g.lineTo(x + stj*24*s + 2*s, y - 51*s); g.lineTo(x + stj*24*s - 12*s, y - 51*s); g.closePath(); g.fill();
+        }
+        g.fillStyle = '#8a6a4a';
+        roundRect(x - 34*s, y - 16*s, 68*s, 6*s, 2*s); g.fill();
+        var si3 = 0;
+        ['craft','berries'].forEach(function(k4){
+          var n3 = Math.min(stallStock[k4] || 0, 3);
+          for (var gi4 = 0; gi4 < n3; gi4++){ drawGood(k4, x - 20*s + si3 * 18*s, y - 22*s, s * 0.9); si3++; }
+        });
       } else if (pj.id === 'signpost'){
         g.strokeStyle = '#5d4630'; g.lineWidth = 3.4*s; g.lineCap = 'round';
         g.beginPath(); g.moveTo(x, y); g.lineTo(x, y - 40*s); g.stroke();
@@ -1728,6 +1912,15 @@ function frame(now){
     c.workLeg = type || (c.work === 'any' ? 'forage' : c.work);
     var tgt = workTarget(c, c.workLeg);
     c.state = 'stroll'; c.tx = tgt.x; c.tz = tgt.z; c.vias = tgt.vias || []; c.speed = 110; c.place = null;
+  };
+  window.__bld = function(){
+    if (!build.active) return 'idle age=' + Math.round(worldAge) + ' next=' + Math.round(build.nextAt) + ' built=[' + JSON.parse(localStorage.getItem('valley-built')||'[]').join(',') + ']';
+    var B = build.active;
+    return B.proj.id + ':' + B.stage + ' t=' + B.t.toFixed(0) + ' age=' + Math.round(worldAge) + ' crew=[' + B.crew.map(function(c){ return c.id + '@' + Math.round(c.x) + ',' + c.z.toFixed(2) + ' d=' + Math.round(Math.hypot(c.x - c.buildSpot.x, (c.z - c.buildSpot.z)*900)) + ' ' + c.state; }).join(' | ') + ']';
+  };
+  window.__civ = function(id){
+    var pj = PROJECTS.filter(function(k){ return k.id === id; })[0];
+    return pj ? ('ready=' + civReady(pj) + ' done=' + pj.done + ' trades=' + tradeCount + ' stall=' + JSON.stringify(stallStock)) : 'no such project';
   };
   window.__char = function(id){
     var c = man;
