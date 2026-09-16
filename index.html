@@ -209,6 +209,10 @@ var ripples = []; var rippleT = 2;
 var butterflies = [];
 for (i=0;i<2;i++) butterflies.push({ x: 500+i*120, z: 0.5, ph: rng()*6.28, tx: 500, tz: 0.5 });
 var fireParts = [];
+var rain = { active: false, t: 75 + Math.random()*90, a: 0 };
+if (/[?&]rain=1/.test(location.search)){ rain.active = true; rain.a = 0.85; rain.t = 300; }
+var owl = { active: false, t: 25 + Math.random()*40, x: 0, y: 0, dir: 1, ph: 0 };
+if (/[?&]owl=1/.test(location.search)){ owl.active = true; owl.x = 420; owl.y = 130; owl.dir = 1; owl.t = 300; }
 var ducks = [];
 for (i=0;i<2;i++) ducks.push({ a: rng()*6.28, r: 55 + rng()*90, sp: (0.10 + rng()*0.08) * (rng()<0.5?1:-1), flap: rng()*6.28 });
 
@@ -222,6 +226,7 @@ var man = {
   pauseUntil: 0, sitUntil: 0,
   heading: 0
 };
+if (pondD2(man.x, man.z) < 1.15) man.z = POND.z + POND.rz * 2.4;  // never stand in the water
 var camX = clamp(man.x - W*0.5, 0, WORLD_W - W);
 
 function pickTarget(){
@@ -519,9 +524,29 @@ function frame(now){
     if (shoot.t <= 0){ shoot.active = true; shoot.x = Math.random()*W*0.8; shoot.y = 20 + Math.random()*60; shoot.vx = 320 + Math.random()*160; shoot.life = 0.8; }
   }
   if (shoot.active){ shoot.x += shoot.vx*dt; shoot.y += shoot.vx*0.35*dt; shoot.life -= dt; if (shoot.life <= 0){ shoot.active = false; shoot.t = 25 + Math.random()*50; } }
+  // rain - passes through on slow timescales
+  rain.t -= dt;
+  if (rain.t <= 0){
+    rain.active = !rain.active;
+    rain.t = rain.active ? 40 + Math.random()*70 : 150 + Math.random()*200;
+    if (rain.active && dark < 0.5 && man.state !== 'stroll') say('rain.', 2400);
+  }
+  rain.a += ((rain.active ? 1 : 0) - rain.a) * (1 - Math.exp(-dt*0.4));
+  // owl - rare silent glide, only deep night
+  if (!owl.active && dark > 0.75){
+    owl.t -= dt;
+    if (owl.t <= 0){
+      owl.active = true; owl.dir = Math.random() < 0.5 ? 1 : -1;
+      owl.x = owl.dir > 0 ? -90 : W + 90; owl.y = 60 + Math.random()*horizonY*0.5; owl.ph = 0;
+    }
+  }
+  if (owl.active){
+    owl.x += owl.dir * 34 * dt; owl.ph += dt * 3.2;
+    if (owl.x < -140 || owl.x > W + 140){ owl.active = false; owl.t = 70 + Math.random()*90; }
+  }
   // pond ripples
   rippleT -= dt;
-  if (rippleT <= 0){ rippleT = 2.5 + Math.random()*4; ripples.push({ r: 4, a: 0.5, x: (Math.random()-0.5)*140, y: (Math.random()-0.5)*22 }); }
+  if (rippleT <= 0){ rippleT = rain.a > 0.4 ? 0.18 + Math.random()*0.3 : 2.5 + Math.random()*4; ripples.push({ r: 4, a: 0.5, x: (Math.random()-0.5)*140, y: (Math.random()-0.5)*22 }); }
   ripples.forEach(function(r){ r.r += 26*dt; r.a -= 0.16*dt; });
   ripples = ripples.filter(function(r){ return r.a > 0; });
   // fireflies drift
@@ -917,6 +942,30 @@ function frame(now){
       g.quadraticCurveTo(bx, by - 3, bx + 7, by + flap);
       g.stroke();
     }
+  }
+
+  // rain veil + streaks (over the world, under the UI)
+  if (rain.a > 0.02){
+    g.fillStyle = 'rgba(210,220,228,' + (rain.a * 0.10).toFixed(3) + ')';
+    g.fillRect(0, 0, W, H);
+    g.strokeStyle = 'rgba(225,235,240,' + (rain.a * 0.28).toFixed(3) + ')';
+    g.lineWidth = 1.1; g.lineCap = 'round';
+    var slant = 5 + wind * 9;
+    for (var ri = 0; ri < 110; ri++){
+      var rx2 = ((ri * 137.5) % (W + 60)) - 30;
+      var ry2 = ((ri * 211.3 + time * 940) % (H + 50)) - 25;
+      g.beginPath(); g.moveTo(rx2, ry2); g.lineTo(rx2 + slant * 0.35, ry2 + 13); g.stroke();
+    }
+  }
+  // owl glide
+  if (owl.active){
+    var ow = Math.abs(Math.sin(owl.ph)) * 9;
+    g.fillStyle = 'rgba(30,28,40,0.9)';
+    g.beginPath(); g.ellipse(owl.x, owl.y, 7, 4.5, 0, 0, 6.29); g.fill();
+    g.beginPath(); g.arc(owl.x + owl.dir * 6, owl.y - 2, 3.4, 0, 6.29); g.fill();
+    g.strokeStyle = 'rgba(30,28,40,0.9)'; g.lineWidth = 3.4; g.lineCap = 'round';
+    g.beginPath(); g.moveTo(owl.x, owl.y); g.quadraticCurveTo(owl.x - 12, owl.y - 4, owl.x - 20, owl.y - 2 - ow); g.stroke();
+    g.beginPath(); g.moveTo(owl.x, owl.y); g.quadraticCurveTo(owl.x + 12, owl.y - 4, owl.x + 20, owl.y - 2 - ow); g.stroke();
   }
 
   // bubble position over his head
