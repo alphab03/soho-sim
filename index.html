@@ -94,6 +94,8 @@
     border-radius:8px;padding:4px 10px;}
   #notes.open .act{display:inline-block;}
   @keyframes notein{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:none;}}
+  #notes-n.pop{animation:npop .5s ease;}
+  @keyframes npop{0%{transform:scale(1);}40%{transform:scale(1.5);}100%{transform:scale(1);}}
 
   #vignette{position:absolute;inset:0;z-index:5;pointer-events:none;
     background:radial-gradient(ellipse at center, transparent 60%, rgba(120,85,50,.14) 100%);}
@@ -434,7 +436,9 @@ function dayWord(t){
 }
 function addNote(text, why, place, t){
   noteCount++;
-  document.getElementById('notes-n').textContent = noteCount;
+  var badge = document.getElementById('notes-n');
+  badge.textContent = noteCount;
+  badge.classList.remove('pop'); void badge.offsetWidth; badge.classList.add('pop');
   var el = document.createElement('div');
   el.className = 'note';
   el.innerHTML = text + '<span>at ' + place + ', ' + dayWord(t) + ' \u00b7 why: ' + why + '</span><button class="act" type="button">intro me</button>';
@@ -510,6 +514,11 @@ function drawMan(x, y, s, face, step, mode, running, squash, stretch, tip, look,
   if (!sit){
     var lax = -7 + Math.sin(-swing)*8*0.8, lay = -42 + 11;
     var rax = 7 + Math.sin(swing)*8*0.8, ray = -42 + 11;
+    if (mode === 'work'){
+      var hw = Math.sin(step*2);
+      lax = 6 + hw*5; lay = -34 + Math.abs(hw)*3;
+      rax = 12 - hw*3; ray = -30 - hw*6;
+    }
     if (stretch > 0){
       lax = lax + (-13 - lax) * stretch; lay = lay + (-58 - lay) * stretch;
       rax = rax + (13 - rax) * stretch;  ray = ray + (-58 - ray) * stretch;
@@ -652,11 +661,38 @@ function resolveExchange(a, b, now, t){
   });
 }
 
+// ---------- building the world up together ----------
+var PROJECTS = [
+  { id:'bench',    name:'a bench',    x: 3102, z: 0.70 },   // by the campfire, faces the fire
+  { id:'cairn',    name:'a cairn',    x: 3700, z: 0.34 },   // at the overlook
+  { id:'lantern',  name:'a lantern',  x: 1660, z: 0.55 },   // at the dock approach
+  { id:'blanket',  name:'a blanket',  x: 2140, z: 0.62 },   // pond shore
+  { id:'signpost', name:'a signpost', x: 2010, z: 0.66 }    // near the bridge
+];
+PROJECTS.forEach(function(pj){ pj.done = false; });
+var buildParts = [], forcedProject = null;
+var build = { active: null, nextAt: 75 + Math.random()*60 };
+if (/[?&]fresh=1/.test(location.search)){ try { localStorage.removeItem('valley-built'); } catch(e){} }
+try {
+  JSON.parse(localStorage.getItem('valley-built') || '[]').forEach(function(id){
+    var pj = PROJECTS.filter(function(k){ return k.id === id; })[0];
+    if (pj) pj.done = true;
+  });
+} catch(e){}
+function saveBuilt(){
+  try { localStorage.setItem('valley-built', JSON.stringify(PROJECTS.filter(function(pj){ return pj.done; }).map(function(pj){ return pj.id; }))); } catch(e){}
+}
+function dustPoof(pj){
+  for (var di = 0; di < 10; di++) buildParts.push({ x: pj.x + (Math.random()-0.5)*50, z: pj.z, y: -4, vy: -(12+Math.random()*20), life: 0.5+Math.random()*0.6, s: 2+Math.random()*2.5 });
+}
+
 // ---------- per-character update ----------
 function updateChar(c, dt, now, t){
   var isV = (c === man);
   c.spd = Math.hypot(c.vx, c.vz);
-  if (c.state === 'meet'){
+  if (c.state === 'build'){
+    c.workT = (c.workT || 0) + dt;
+  } else if (c.state === 'meet'){
     var o = c.meetWith;
     if (!o || o.state !== 'meet'){ endMeet(c, now); return; }
     c.meetT += dt;
@@ -773,8 +809,9 @@ function updateChar(c, dt, now, t){
   var squash = 1;
   if (c.turnT > 0){ c.turnT -= dt; squash = 1 - 0.16*Math.sin(Math.PI*Math.max(0, c.turnT)/0.15); }
   c.squash = squash;
-  c.mode = c.state === 'sit' ? 'sit' : (c.spd > 6 ? 'walk' : 'idle');
+  c.mode = c.state === 'sit' ? 'sit' : (c.state === 'build' ? 'work' : (c.spd > 6 ? 'walk' : 'idle'));
   if (c.mode === 'idle') c.step += dt * 2;
+  else if (c.mode === 'work') c.step += dt * 7;
   if (c.mode === 'idle' || c.mode === 'sit'){ c.idleT += dt; if (c.idleT > 3.5 && c.stretchT <= 0 && c.state !== 'meet') c.stretchT = 1.6; }
   else c.idleT = 0;
   if (c.stretchT > 0) c.stretchT = Math.max(0, c.stretchT - dt);
@@ -807,7 +844,8 @@ function frame(now){
   for (var pi5 = 0; pi5 < chars.length; pi5++){
     for (var pj5 = pi5 + 1; pj5 < chars.length; pj5++){
       var A = chars[pi5], B = chars[pj5];
-      if (A.state === 'meet' || B.state === 'meet') continue;
+      if (A.state === 'meet' || B.state === 'meet' || A.state === 'build' || B.state === 'build') continue;
+      if (A.buildRole || B.buildRole) continue;
       if (A.state === 'sit' && B.state === 'sit') continue;
       if ((pairCd[pairKey(A, B)] || 0) > now) continue;
       if (now - lastMeet < 9000) continue;
@@ -821,6 +859,60 @@ function frame(now){
 
   // ---- characters ----
   chars.forEach(function(c){ updateChar(c, dt, now, t); });
+
+  // ---- building projects - the crew gathers, works, and the world keeps what they make ----
+  if (!build.active && time > build.nextAt){
+    var remaining = PROJECTS.filter(function(pj){ return !pj.done; });
+    if (remaining.length){
+      var proj = forcedProject || remaining[0];
+      forcedProject = null;
+      var others = chars.filter(function(c2){ return c2 !== man && c2.state !== 'meet' && c2.state !== 'build' && !c2.buildRole; })
+        .sort(function(a2, b2){ return Math.abs(a2.x - proj.x) - Math.abs(b2.x - proj.x); });
+      var crew = [man].concat(others.slice(0, 2));
+      build.active = { proj: proj, crew: crew, stage: 'gather', t: 0 };
+      crew.forEach(function(c2){
+        c2.buildRole = true;
+        c2.state = 'stroll'; c2.resume = null; c2.meetWith = null; c2.place = null;
+        var ang = Math.random()*6.28;
+        c2.tx = proj.x + Math.cos(ang)*48;
+        c2.tz = clamp(proj.z + Math.sin(ang)*0.05, 0.2, 0.88);
+        c2.vias = []; c2.speed = 74 + Math.random()*18;
+        c2.buildSpot = { x: c2.tx, z: c2.tz };
+      });
+    } else build.nextAt = time + 600;
+  }
+  if (build.active){
+    var B = build.active;
+    if (B.stage === 'gather'){
+      B.t += dt;
+      var arrived = B.crew.every(function(c2){ return Math.abs(c2.x - c2.buildSpot.x) < 44 && Math.abs(c2.z - c2.buildSpot.z) < 0.09; });
+      if (arrived){
+        B.stage = 'work'; B.t = 0;
+        B.crew.forEach(function(c2){
+          c2.state = 'build'; c2.workT = 0; c2.vx = 0; c2.vz = 0;
+          c2.face = c2.x < B.proj.x ? 1 : -1; c2.lastFace = c2.face; c2.visFace = c2.face; c2.idleT = 0;
+        });
+        sayFor(B.crew[Math.floor(Math.random()*B.crew.length)], 'let us build ' + B.proj.name + '.', 2600);
+      } else if (B.t > 75){
+        B.crew.forEach(function(c2){ c2.buildRole = false; });
+        build.active = null; build.nextAt = time + 120;
+      }
+    } else if (B.stage === 'work'){
+      B.t += dt;
+      if (Math.random() < 0.35) buildParts.push({ x: B.proj.x + (Math.random()-0.5)*44, z: B.proj.z, y: 0, vy: -(8+Math.random()*12), life: 0.4+Math.random()*0.4, s: 1.5+Math.random()*2 });
+      if (B.t > 14){
+        B.proj.done = true;
+        saveBuilt();
+        dustPoof(B.proj);
+        B.crew.forEach(function(c2){ c2.state = 'pause'; c2.pauseUntil = now + 1800; c2.hop = 1; c2.buildRole = false; c2.idleT = 0; });
+        sayFor(man, 'looks right.', 2400);
+        build.active = null;
+        build.nextAt = time + 240 + Math.random()*180;
+      }
+    }
+  }
+  buildParts.forEach(function(bp){ bp.y += bp.vy*dt; bp.x += Math.sin(time*5 + bp.y*0.3)*6*dt; bp.life -= dt; });
+  buildParts = buildParts.filter(function(bp){ return bp.life > 0; });
 
   // camera
   var camTarget = clamp(man.x - W*0.5, 0, Math.max(0, WORLD_W - W));
@@ -1220,6 +1312,67 @@ function frame(now){
       });
     }
   }});
+  // built structures - the world the characters make together
+  PROJECTS.forEach(function(pj){
+    drawList.push({ z: pj.z, f: function(){
+      var x = pj.x - camX; if (x < -140 || x > W + 140) return;
+      var y = gy(pj.z), s = zs(pj.z);
+      var activeSite = build.active && build.active.proj === pj;
+      if (!pj.done && !activeSite) return;
+      if (!pj.done){
+        // materials pile while the crew works
+        g.strokeStyle = '#7a5c40'; g.lineWidth = 4*s; g.lineCap = 'round';
+        g.beginPath(); g.moveTo(x - 14*s, y - 2*s); g.lineTo(x + 14*s, y - 6*s); g.stroke();
+        g.beginPath(); g.moveTo(x + 14*s, y - 2*s); g.lineTo(x - 14*s, y - 6*s); g.stroke();
+        return;
+      }
+      if (pj.id === 'bench'){
+        g.strokeStyle = '#6d5138'; g.lineCap = 'round'; g.lineWidth = 3.4*s;
+        g.beginPath(); g.moveTo(x - 22*s, y); g.lineTo(x - 22*s, y - 12*s); g.stroke();
+        g.beginPath(); g.moveTo(x + 22*s, y); g.lineTo(x + 22*s, y - 12*s); g.stroke();
+        g.strokeStyle = '#8a6a4a'; g.lineWidth = 4.6*s;
+        g.beginPath(); g.moveTo(x - 30*s, y - 12*s); g.lineTo(x + 30*s, y - 12*s); g.stroke();
+        g.lineWidth = 2.4*s;
+        g.beginPath(); g.moveTo(x - 30*s, y - 17*s); g.lineTo(x + 30*s, y - 17*s); g.stroke();
+      } else if (pj.id === 'cairn'){
+        g.fillStyle = rgba(pal.ridgeMid, 0.95);
+        g.beginPath(); g.ellipse(x, y - 4*s, 14*s, 7*s, 0, 0, 6.29); g.fill();
+        g.beginPath(); g.ellipse(x + 1*s, y - 12*s, 10*s, 5.5*s, 0, 0, 6.29); g.fill();
+        g.beginPath(); g.ellipse(x - 1*s, y - 19*s, 6.5*s, 4.2*s, 0, 0, 6.29); g.fill();
+        g.beginPath(); g.ellipse(x, y - 24*s, 3.6*s, 2.8*s, 0, 0, 6.29); g.fill();
+      } else if (pj.id === 'lantern'){
+        g.strokeStyle = '#5d4630'; g.lineWidth = 3.2*s; g.lineCap = 'round';
+        g.beginPath(); g.moveTo(x, y); g.lineTo(x, y - 46*s); g.stroke();
+        g.beginPath(); g.moveTo(x, y - 44*s); g.lineTo(x + 12*s, y - 44*s); g.stroke();
+        g.fillStyle = '#6d5138';
+        roundRect(x + 7*s, y - 42*s, 10*s, 13*s, 2*s); g.fill();
+        g.fillStyle = dark > 0.35 ? '#ffd98a' : '#e8dcc0';
+        roundRect(x + 9*s, y - 40*s, 6*s, 9*s, 1.5*s); g.fill();
+        if (dark > 0.35){
+          var lg = g.createRadialGradient(x + 12*s, y - 35*s, 2, x + 12*s, y - 35*s, 46*s);
+          lg.addColorStop(0, 'rgba(255,200,110,' + (0.4*dark).toFixed(3) + ')'); lg.addColorStop(1, 'rgba(255,200,110,0)');
+          g.fillStyle = lg; g.beginPath(); g.arc(x + 12*s, y - 35*s, 46*s, 0, 6.29); g.fill();
+        }
+      } else if (pj.id === 'blanket'){
+        g.save(); g.translate(x, y); g.rotate(-0.06);
+        g.fillStyle = '#c96f4a';
+        roundRect(-30*s, -12*s, 60*s, 20*s, 4*s); g.fill();
+        g.fillStyle = 'rgba(255,253,248,0.7)';
+        g.fillRect(-30*s, -4*s, 60*s, 4*s);
+        g.restore();
+        g.fillStyle = '#8a6a4a';
+        g.beginPath(); g.ellipse(x + 12*s, y - 15*s, 7*s, 5*s, 0, 0, 6.29); g.fill();
+        g.strokeStyle = '#6d5138'; g.lineWidth = 1.6*s;
+        g.beginPath(); g.arc(x + 12*s, y - 17*s, 6*s, Math.PI, 0); g.stroke();
+      } else if (pj.id === 'signpost'){
+        g.strokeStyle = '#5d4630'; g.lineWidth = 3.4*s; g.lineCap = 'round';
+        g.beginPath(); g.moveTo(x, y); g.lineTo(x, y - 40*s); g.stroke();
+        g.fillStyle = '#8a6a4a';
+        g.beginPath(); g.moveTo(x - 2*s, y - 36*s); g.lineTo(x + 26*s, y - 36*s); g.lineTo(x + 32*s, y - 32*s); g.lineTo(x + 26*s, y - 28*s); g.lineTo(x - 2*s, y - 28*s); g.closePath(); g.fill();
+        g.beginPath(); g.moveTo(x + 2*s, y - 24*s); g.lineTo(x - 26*s, y - 24*s); g.lineTo(x - 32*s, y - 20*s); g.lineTo(x - 26*s, y - 16*s); g.lineTo(x + 2*s, y - 16*s); g.closePath(); g.fill();
+      }
+    }});
+  });
   // flowers + tufts + man + butterflies into the sort
   flowers.forEach(function(f){
     drawList.push({ z: f.z, f: function(){
@@ -1285,6 +1438,11 @@ function frame(now){
   });
   drawList.sort(function(a,b){ return a.z - b.z; });
   drawList.forEach(function(d){ d.f(); });
+  // sawdust over build sites
+  buildParts.forEach(function(bp){
+    g.fillStyle = 'rgba(190,160,120,' + clamp(bp.life,0,0.6).toFixed(3) + ')';
+    g.beginPath(); g.arc(bp.x - camX, gy(bp.z) - 8*zs(bp.z) + bp.y, bp.s, 0, 6.29); g.fill();
+  });
 
   // foreground blades - big soft framing at the bottom edge
   g.lineCap = 'round';
@@ -1354,7 +1512,7 @@ function frame(now){
   chars.forEach(function(c){
     var bb = bubs[c.id];
     if (!bb) return;
-    bb.el.style.left = (c.x - camX) + 'px';
+    bb.el.style.left = (c.x - camX + (c.state === 'meet' ? (c.meetLead ? -22 : 22) : 0)) + 'px';
     bb.el.style.top = (gy(c.z) - 96 * zs(c.z)) + 'px';
   });
 
@@ -1365,6 +1523,12 @@ function frame(now){
   };
   window.__tip = function(){ man.hop = 1; man.tipT = 1.3; };
   window.__sit = function(f){ man.state='sit'; man.pauseUntil = performance.now()+12000; man.vx=0; man.vz=0; if (f){ man.face=f; man.lastFace=f; man.visFace=f; } };
+  window.__build = function(id){
+    var pj = PROJECTS.filter(function(k){ return k.id === (id || 'bench') && !k.done; })[0] || PROJECTS.filter(function(k){ return !k.done; })[0];
+    if (!pj) return 'all built';
+    forcedProject = pj; build.nextAt = -1;
+    if (build.active){ build.active.crew.forEach(function(c2){ c2.buildRole = false; }); build.active = null; }
+  };
   window.__meet = function(id){
     var o = null;
     chars.forEach(function(c){ if (c.id === id) o = c; });
