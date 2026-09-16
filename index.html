@@ -160,6 +160,23 @@ PLACES.forEach(function(p){ p.found = false; });
 // the pond is water - he walks around it, not through it
 var POND = { x: 1900, z: 0.44, rx: 250, rz: 0.115 };
 function pondD2(x, z){ var ex = (x - POND.x)/POND.rx, ez = (z - POND.z)/POND.rz; return ex*ex + ez*ez; }
+
+// the creek - outflow from the pond, meanders toward the camera
+var CREEK = [ {x:1900,z:0.53}, {x:1975,z:0.62}, {x:1915,z:0.74}, {x:2025,z:0.88}, {x:1985,z:1.06} ];
+function creekD(x, z){
+  var best = 1e9;
+  for (var ci = 0; ci < CREEK.length - 1; ci++){
+    var a = CREEK[ci], b = CREEK[ci+1];
+    var ax = a.x, ay = a.z*900, bx = b.x, by = b.z*900;
+    var dx = bx-ax, dy = by-ay, len2 = dx*dx + dy*dy;
+    var tt = ((x-ax)*dx + (z*900-ay)*dy) / len2;
+    tt = Math.max(0, Math.min(1, tt));
+    var ex2 = ax + dx*tt - x, ey2 = ay + dy*tt - z*900;
+    var d2 = ex2*ex2 + ey2*ey2;
+    if (d2 < best) best = d2;
+  }
+  return Math.sqrt(best);
+}
 document.getElementById('found-total').textContent = PLACES.length;
 var found = 0;
 
@@ -178,6 +195,10 @@ tufts = tufts.filter(function(o){ return pondD2(o.x, o.z) > 1.4; });
 flowers = flowers.filter(function(o){ return pondD2(o.x, o.z) > 1.4; });
 bushes = bushes.filter(function(o){ return pondD2(o.x, o.z) > 1.6; });
 stones = stones.filter(function(o){ return pondD2(o.x, o.z) > 1.5; });
+tufts = tufts.filter(function(o){ return creekD(o.x, o.z) > 26; });
+flowers = flowers.filter(function(o){ return creekD(o.x, o.z) > 24; });
+stones = stones.filter(function(o){ return creekD(o.x, o.z) > 24; });
+bushes = bushes.filter(function(o){ return creekD(o.x, o.z) > 42; });
 
 // creatures
 var birds = { t: 8 + Math.random()*10, flock: null };
@@ -587,13 +608,17 @@ function frame(now){
   ridge(0.10, horizonY - 6, H*0.30, 3.1, lerpC(pal.ridgeFar, pal.skyBot, 0.45));
   ridge(0.26, horizonY + 2, H*0.16, 7.7, lerpC(pal.ridgeMid, pal.skyBot, 0.18));
   // treeline
-  g.fillStyle = pal.trees;
   var tl = horizonY + 6;
   for (var ti = 0; ti < treesFar.length; ti++){
     var tr = treesFar[ti];
     var tx = tr.x * (WORLD_W*0.55 + W) - camX * 0.55;
     if (tx < -40 || tx > W + 40) continue;
-    if (tr.h > 1.15){
+    g.fillStyle = (ti % 3 === 0) ? lerpC(pal.trees, pal.ridgeMid, 0.35) : (ti % 3 === 1 ? pal.trees : lerpC(pal.trees, pal.mead1, 0.22));
+    if (tr.h > 1.28 && tr.w < 0.95){
+      g.beginPath();
+      g.ellipse(tx, tl - tr.h*13, 5.5*tr.w, 16*tr.h*0.9, 0, 0, 6.29);
+      g.fill();
+    } else if (tr.h > 1.15){
       g.beginPath();
       g.moveTo(tx, tl - tr.h*26); g.lineTo(tx - 9*tr.w, tl); g.lineTo(tx + 9*tr.w, tl);
       g.closePath(); g.fill();
@@ -623,6 +648,50 @@ function frame(now){
   }
   g.stroke();
 
+  // creek - ribbon from the pond toward the camera, flowing glints
+  (function(){
+    var pts = CREEK.map(function(c){ return { x: c.x - camX, y: gy(c.z), z: c.z }; });
+    g.beginPath();
+    for (var ci = 0; ci < pts.length; ci++){
+      var p = pts[ci], hw = 7 + p.z * 16;
+      if (ci === 0) g.moveTo(p.x - hw, p.y); else g.lineTo(p.x - hw, p.y);
+    }
+    for (ci = pts.length - 1; ci >= 0; ci--){
+      p = pts[ci]; hw = 7 + p.z * 16;
+      g.lineTo(p.x + hw, p.y);
+    }
+    g.closePath();
+    g.fillStyle = lerpC(pal.water, pal.ridgeMid, 0.22);
+    g.fill();
+    // banks
+    g.strokeStyle = rgba(pal.mead2, 0.5); g.lineWidth = 2.5;
+    g.beginPath();
+    for (ci = 0; ci < pts.length; ci++){ p = pts[ci]; hw = 7 + p.z * 16; if (ci === 0) g.moveTo(p.x - hw, p.y); else g.lineTo(p.x - hw, p.y); }
+    g.stroke();
+    g.beginPath();
+    for (ci = 0; ci < pts.length; ci++){ p = pts[ci]; hw = 7 + p.z * 16; if (ci === 0) g.moveTo(p.x + hw, p.y); else g.lineTo(p.x + hw, p.y); }
+    g.stroke();
+    // flow glints sliding downstream
+    g.strokeStyle = 'rgba(255,255,255,0.16)'; g.lineWidth = 1.4; g.lineCap = 'round';
+    var segLen = [], tot = 0;
+    for (ci = 0; ci < pts.length - 1; ci++){ var l = Math.hypot(pts[ci+1].x - pts[ci].x, pts[ci+1].y - pts[ci].y); segLen.push(l); tot += l; }
+    for (var gi = 0; gi < 4; gi++){
+      var ft = ((time * 0.06 + gi * 0.25) % 1) * tot;
+      var acc = 0;
+      for (ci = 0; ci < segLen.length; ci++){
+        if (ft <= acc + segLen[ci]){
+          var k = (ft - acc) / segLen[ci];
+          var gx2 = pts[ci].x + (pts[ci+1].x - pts[ci].x) * k;
+          var gy3 = pts[ci].y + (pts[ci+1].y - pts[ci].y) * k;
+          var gz = pts[ci].z + (pts[ci+1].z - pts[ci].z) * k;
+          g.beginPath(); g.moveTo(gx2 - 4 - gz*6, gy3); g.lineTo(gx2 + 4 + gz*6, gy3); g.stroke();
+          break;
+        }
+        acc += segLen[ci];
+      }
+    }
+  })();
+
   // ---- sorted meadow objects ----
   var drawList = [];
   drawList.push({ z: 0.30, f: function(){ // overlook rocks
@@ -639,6 +708,36 @@ function frame(now){
     if (x < -200 || x > W + 200) return;
     drawTree(x, y, s * 1.6, rgba(pal.trees, 1), Math.sin(time*0.8)*wind*1.4);
   }});
+  drawList.push({ z: 0.575, f: function(){ // plank bridge over the creek
+    var x = 1942 - camX, y = gy(0.578), s = zs(0.578);
+    if (x < -140 || x > W + 140) return;
+    var bw = 46 * s;
+    g.strokeStyle = '#6d5138'; g.lineWidth = 2.6 * s; g.lineCap = 'round';
+    g.beginPath(); g.moveTo(x - bw, y - 7*s); g.quadraticCurveTo(x, y - 17*s, x + bw, y - 7*s); g.stroke();
+    g.fillStyle = '#8a6a4a';
+    g.beginPath();
+    g.moveTo(x - bw, y + 3*s);
+    g.quadraticCurveTo(x, y - 8*s, x + bw, y + 3*s);
+    g.lineTo(x + bw, y + 7*s);
+    g.quadraticCurveTo(x, y - 3*s, x - bw, y + 7*s);
+    g.closePath(); g.fill();
+    g.strokeStyle = 'rgba(60,44,30,0.45)'; g.lineWidth = 1.3 * s;
+    for (var pi = -2; pi <= 2; pi++){
+      var px3 = x + pi * (bw / 2.6);
+      var lift = (1 - Math.abs(pi) / 2.8) * 5 * s;
+      g.beginPath(); g.moveTo(px3, y + 3*s - lift); g.lineTo(px3, y + 6.4*s - lift); g.stroke();
+    }
+    g.fillStyle = '#6d5138';
+    g.beginPath(); g.arc(x - bw, y - 7*s, 2.2*s, 0, 6.29); g.fill();
+    g.beginPath(); g.arc(x + bw, y - 7*s, 2.2*s, 0, 6.29); g.fill();
+  }});
+  [[480, 0.20, 0.9], [3350, 0.24, 1.05], [2980, 0.17, 0.75]].forEach(function(mt){
+    drawList.push({ z: mt[1], f: function(){
+      var x = mt[0] - camX, y = gy(mt[1]), s = zs(mt[1]) * mt[2] * 1.6;
+      if (x < -140 || x > W + 140) return;
+      drawTree(x, y, s, rgba(pal.trees, 1), Math.sin(time*0.8 + mt[0]) * wind * 1.2);
+    }});
+  });
   drawList.push({ z: 0.42, f: function(){ // pond
     var x = 1900 - camX, y = gy(0.44), s = zs(0.44);
     if (x < -400 || x > W + 400) return;
