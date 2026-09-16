@@ -1,4 +1,4 @@
-const CACHE = 'valley-sim-v15';
+const CACHE = 'valley-sim-v16';
 const SHELL = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png', './apple-touch-icon.png'];
 
 self.addEventListener('install', (e) => {

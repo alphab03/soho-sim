@@ -339,6 +339,10 @@ chars.forEach(function(c, i){
 });
 var man = chars[0];   // alpha's character - the camera follows him
 var camX = clamp(man.x - W*0.5, 0, WORLD_W - W);
+// alpha's zoom lens - pinch / wheel changes the view, never the camera's mind
+var ZMIN = 0.55, ZMAX = 2.2;
+var zoom = 1, targetZoom = 1;
+var zcy = 0;   // vertical lens anchor - eases toward the followed one when zoomed in
 
 function pickTarget(c){
   var un = PLACES.filter(function(p){ return !p.found; });
@@ -448,6 +452,40 @@ var notesEl = document.getElementById('notes');
 var notesList = document.getElementById('notes-list');
 var noteCount = 0;
 notesEl.addEventListener('click', function(){ notesEl.classList.toggle('open'); });
+
+// ---- the zoom lens: wheel / trackpad / pinch, double-tap resets ----
+var pinch0 = 0, pinchZoom = 1, iosGesture = false;
+canvas.addEventListener('wheel', function(e){
+  e.preventDefault();
+  var d = e.ctrlKey ? e.deltaY * 0.008 : e.deltaY * 0.0012;   // ctrl+wheel = trackpad pinch
+  targetZoom = clamp(targetZoom * (1 - d), ZMIN, ZMAX);
+}, { passive: false });
+canvas.addEventListener('touchstart', function(e){
+  if (e.touches.length === 2 && !iosGesture){
+    e.preventDefault();
+    pinch0 = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+    pinchZoom = targetZoom;
+  }
+}, { passive: false });
+canvas.addEventListener('touchmove', function(e){
+  if (e.touches.length === 2 && pinch0 > 0 && !iosGesture){
+    e.preventDefault();
+    var d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+    targetZoom = clamp(pinchZoom * d / pinch0, ZMIN, ZMAX);
+  }
+}, { passive: false });
+document.addEventListener('gesturestart', function(e){ e.preventDefault(); iosGesture = true; pinchZoom = targetZoom; }, { passive: false });
+document.addEventListener('gesturechange', function(e){ e.preventDefault(); targetZoom = clamp(pinchZoom * e.scale, ZMIN, ZMAX); }, { passive: false });
+document.addEventListener('gestureend', function(e){ e.preventDefault(); }, { passive: false });
+canvas.addEventListener('dblclick', function(){ targetZoom = 1; });
+var lastTap = 0;
+canvas.addEventListener('touchend', function(e){
+  if (e.touches.length === 0 && e.changedTouches.length === 1){
+    var now2 = performance.now();
+    if (now2 - lastTap < 300) targetZoom = 1;
+    lastTap = now2;
+  }
+});
 function dayWord(t){
   if (t < 0.22 || t >= 0.9) return 'deep night';
   if (t < 0.30) return 'dawn';
@@ -766,6 +804,7 @@ if (save.t != null && !Q.has('t')) T0 = ((save.t + awaySec / DAY_LEN) % 1 + 1) %
 var build = { active: null, nextAt: 75 + Math.random()*60 };
 if (save.next > 0) build.nextAt = save.next;
 var currentT = T0;
+if (typeof save.zoom === 'number' && !isNaN(save.zoom)) zoom = targetZoom = clamp(save.zoom, ZMIN, ZMAX);
 // worn paths - the valley remembers where they walk
 var heat = new Array(HEAT_W * HEAT_H).fill(0);
 if (save.heat && save.heat.length === heat.length) heat = save.heat;
@@ -789,6 +828,7 @@ function saveWorld(){
     });
     save.notes = notesData.slice(0, 8);
     save.noteCount = noteCount;
+    save.zoom = targetZoom;
     localStorage.setItem(SAVE_KEY, JSON.stringify(save));
   } catch(e){}
 }
@@ -1155,6 +1195,16 @@ function frame(now){
   var pal = palAt(t);
   var dark = pal.darkRaw;
   var wind = Math.sin(time * 0.23) * 0.5 + 0.5;
+  // the lens eases toward alpha's setting - gentle, never a fight with the camera
+  zoom += (targetZoom - zoom) * Math.min(1, dt * 9);
+  if (Math.abs(targetZoom - zoom) < 0.002) zoom = targetZoom;
+  if (!zcy) zcy = H * 0.55;
+  // at 1x the composition is fixed; the closer the lens, the more it holds the followed one
+  var trackK = clamp((zoom - 1) / (ZMAX - 1), 0, 1);
+  var zcyT = H * 0.55 + trackK * (gy(man.z) - 125 * zs(man.z) - H * 0.55);
+  zcy += (zcyT - zcy) * Math.min(1, dt * 2);
+  var zcx = W * 0.5;
+  var bgX = zcx - zcx / zoom, bgY = zcy - zcy / zoom, bgW = W / zoom, bgH = H / zoom;
 
   // ---- encounters - two characters near each other stop and talk ----
   for (var pi5 = 0; pi5 < chars.length; pi5++){
@@ -1272,8 +1322,8 @@ function frame(now){
       if (chars[li] !== man && chars[li].state === 'labor' && man.state === 'stroll'){ interestX = chars[li].x; break; }
     }
   }
-  if (interestX !== null && Math.abs(interestX - man.x) < 1100) focusX = (man.x + interestX) / 2;
-  var camTarget = clamp(focusX - W*0.5, 0, Math.max(0, WORLD_W - W));
+  if (interestX !== null && Math.abs(interestX - man.x) < 1100 / Math.max(1, zoom)) focusX = (man.x + interestX) / 2;
+  var camTarget = clamp(focusX - W*0.5, W/(2*zoom) - W/2, WORLD_W - W/2 - W/(2*zoom));
   camX += (camTarget - camX) * (1 - Math.exp(-dt*2.4));
 
   // ---- creatures ----
@@ -1363,10 +1413,13 @@ function frame(now){
   fireParts = fireParts.filter(function(p){ return p.life > 0; });
 
   // ================= draw =================
+  // the zoom lens - magnify the whole scene around the camera's focus
+  g.save();
+  g.translate(zcx, zcy); g.scale(zoom, zoom); g.translate(-zcx, -zcy);
   // sky
   var sky = g.createLinearGradient(0, 0, 0, horizonY*1.15);
   sky.addColorStop(0, pal.skyTop); sky.addColorStop(1, pal.skyBot);
-  g.fillStyle = sky; g.fillRect(0, 0, W, H);
+  g.fillStyle = sky; g.fillRect(bgX, bgY, bgW, bgH);
   // stars
   if (dark > 0.25){
     stars.forEach(function(s){
@@ -1424,7 +1477,7 @@ function frame(now){
       var gg = g.createRadialGradient(sp0.x, sp0.y, 10, sp0.x, sp0.y, H * 0.75);
       gg.addColorStop(0, 'rgba(255,186,96,' + (0.22 * lowK).toFixed(3) + ')');
       gg.addColorStop(1, 'rgba(255,186,96,0)');
-      g.fillStyle = gg; g.fillRect(0, 0, W, H);
+      g.fillStyle = gg; g.fillRect(bgX, bgY, bgW, bgH);
     }
   }
   // dawn mist drifting over the meadow
@@ -1469,7 +1522,7 @@ function frame(now){
   // meadow base
   var mg2 = g.createLinearGradient(0, horizonY, 0, H);
   mg2.addColorStop(0, pal.mead1); mg2.addColorStop(1, pal.mead2);
-  g.fillStyle = mg2; g.fillRect(0, tl - 4, W, H - tl + 4);
+  g.fillStyle = mg2; g.fillRect(bgX, tl - 4, bgW, bgY + bgH - tl + 4);
   // path
   g.strokeStyle = 'rgba(242,228,200,0.16)';
   g.lineWidth = meadowH * 0.10; g.lineCap = 'round';
@@ -1951,7 +2004,7 @@ function frame(now){
   // rain veil + streaks (over the world, under the UI)
   if (rain.a > 0.02){
     g.fillStyle = 'rgba(210,220,228,' + (rain.a * 0.10).toFixed(3) + ')';
-    g.fillRect(0, 0, W, H);
+    g.fillRect(bgX, bgY, bgW, bgH);
     g.strokeStyle = 'rgba(225,235,240,' + (rain.a * 0.28).toFixed(3) + ')';
     g.lineWidth = 1.1; g.lineCap = 'round';
     var slant = 5 + wind * 9;
@@ -1972,12 +2025,14 @@ function frame(now){
     g.beginPath(); g.moveTo(owl.x, owl.y); g.quadraticCurveTo(owl.x + 12, owl.y - 4, owl.x + 20, owl.y - 2 - ow); g.stroke();
   }
 
-  // bubbles follow their owners
+  g.restore();   // end of the zoom lens
+
+  // bubbles follow their owners (through the same lens math)
   chars.forEach(function(c){
     var bb = bubs[c.id];
     if (!bb) return;
-    bb.el.style.left = (c.x - camX + (c.state === 'meet' ? (c.meetLead ? -22 : 22) : 0)) + 'px';
-    bb.el.style.top = (gy(c.z) - 96 * zs(c.z)) + 'px';
+    bb.el.style.left = ((c.x - camX - zcx) * zoom + zcx + (c.state === 'meet' ? (c.meetLead ? -22 : 22) : 0)) + 'px';
+    bb.el.style.top = ((gy(c.z) - zcy) * zoom + zcy - 96 * zs(c.z) * zoom) + 'px';
   });
 
   if (DEBUG){
@@ -1987,6 +2042,8 @@ function frame(now){
     man.vias = [ { x: DOCK.approach.x, z: DOCK.approach.z }, { x: DOCK.ax, z: DOCK.az } ];
   };
   window.__tip = function(){ man.hop = 1; man.tipT = 1.3; };
+  window.__zoom = function(z){ targetZoom = clamp(z || 1, ZMIN, ZMAX); return targetZoom; };
+  window.__zget = function(){ return { zoom: +zoom.toFixed(3), targetZoom: targetZoom, camX: Math.round(camX), manX: Math.round(man.x), W: W, H: H }; };
   window.__sit = function(f){ man.state='sit'; man.pauseUntil = performance.now()+12000; man.vx=0; man.vz=0; if (f){ man.face=f; man.lastFace=f; man.visFace=f; } };
   window.__work = function(id, type){
     var c = man;
