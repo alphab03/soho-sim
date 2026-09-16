@@ -730,7 +730,9 @@ function updateChar(c, dt, now, t){
     var aimZ = c.vias.length ? c.vias[0].z : c.tz;
     var dx = aimX - c.x, dz = aimZ - c.z;
     var dist = Math.hypot(c.tx - c.x, (c.tz - c.z) * 900); // z compressed space
-    if (dist < 26 && !c.vias.length){
+    if (dist < 26 && !c.vias.length && c.buildRole){
+      c.state = 'pause'; c.pauseUntil = now + 90000; c.vx = 0; c.vz = 0;  // crew waits at the site
+    } else if (dist < 26 && !c.vias.length){
       var pool = thoughtPool(t);
       var p = c.place;
       if (p && p.sit && Math.random() < (isV ? 0.5 : 0.4)){
@@ -894,7 +896,7 @@ function frame(now){
         });
         sayFor(B.crew[Math.floor(Math.random()*B.crew.length)], 'let us build ' + B.proj.name + '.', 2600);
       } else if (B.t > 75){
-        B.crew.forEach(function(c2){ c2.buildRole = false; });
+        B.crew.forEach(function(c2){ c2.buildRole = false; c2.pauseUntil = Math.min(c2.pauseUntil, now + 400); });
         build.active = null; build.nextAt = time + 120;
       }
     } else if (B.stage === 'work'){
