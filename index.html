@@ -188,12 +188,15 @@ var ripples = []; var rippleT = 2;
 var butterflies = [];
 for (i=0;i<2;i++) butterflies.push({ x: 500+i*120, z: 0.5, ph: rng()*6.28, tx: 500, tz: 0.5 });
 var fireParts = [];
+var ducks = [];
+for (i=0;i<2;i++) ducks.push({ a: rng()*6.28, r: 55 + rng()*90, sp: (0.10 + rng()*0.08) * (rng()<0.5?1:-1), flap: rng()*6.28 });
 
 // ---------- the little man ----------
 var man = {
   x: START_X, z: START_Z, vx: 0, vz: 0,
-  face: 1, visFace: 1, step: 0,
+  face: 1, visFace: 1, lastFace: 1, turnT: 0, squash: 1, step: 0,
   state: 'stroll',            // stroll | pause | sit
+  hop: 0,
   tx: START_X, tz: START_Z, speed: 66,
   pauseUntil: 0, sitUntil: 0,
   heading: 0
@@ -285,7 +288,8 @@ function drawTree(gx, gy2, s, color, sway){
   });
 }
 
-function drawMan(x, y, s, face, step, mode, running){
+function drawMan(x, y, s, face, step, mode, running, squash){
+  squash = squash || 1;
   g.save();
   g.translate(x, y);
   // shadow
@@ -294,7 +298,7 @@ function drawMan(x, y, s, face, step, mode, running){
   var bob = (mode==='walk') ? -Math.abs(Math.sin(step))*2.2*s : (mode==='idle' ? -Math.sin(step*0.4)*0.8*s : 0);
   var sit = (mode==='sit');
   g.translate(0, bob + (sit ? 8*s : 0));
-  g.scale(face*s, s);
+  g.scale(face*s*(2-squash), s*squash);
   var swing = (mode==='walk') ? Math.sin(step)*(running?0.62:0.42) : 0;
   // legs
   g.lineCap = 'round';
@@ -386,7 +390,7 @@ function frame(now){
         man.state = 'sit';
         man.pauseUntil = now + 7000 + Math.random()*7000;
         man.x = p.x + 52; man.z = p.z + 0.10;   // settle beside it, not on top of it
-        man.face = -1; man.visFace = -0.6;      // turn to look at it
+        man.face = -1; man.lastFace = -1; man.visFace = -1;      // turn to look at it
         say(p.id === 'fire' ? 'warm.' : p.sub + '.', 3200);
       } else {
         man.state = 'pause';
@@ -437,6 +441,7 @@ function frame(now){
           p.found = true; found++;
           document.getElementById('found-n').textContent = found;
           showToast(p);
+          man.hop = 1;          // little jump of joy
           man.state = 'pause';
           man.pauseUntil = now + 5000;
           man.tx = man.x; man.tz = man.z;
@@ -446,9 +451,11 @@ function frame(now){
     }
   }
   if (man.state !== 'stroll'){ man.vx *= Math.exp(-dt*4); man.vz *= Math.exp(-dt*4); }
-  var vfTarget = man.face;
-  man.visFace += (vfTarget - man.visFace) * (1 - Math.exp(-dt*10));
-  if (Math.abs(man.visFace) < 0.08) man.visFace = 0.08 * Math.sign(man.visFace || 1);
+  if (man.hop > 0) man.hop = Math.max(0, man.hop - dt*2.4);
+    if (man.face !== man.lastFace){ man.turnT = 0.15; man.lastFace = man.face; man.visFace = man.face; }
+  var squash = 1;
+  if (man.turnT > 0){ man.turnT -= dt; squash = 1 - 0.16*Math.sin(Math.PI*Math.max(0, man.turnT)/0.15); }
+  man.squash = squash;
   var mode = man.state === 'sit' ? 'sit' : (spd > 6 ? 'walk' : 'idle');
   if (mode === 'idle') man.step += dt * 2;
 
@@ -507,6 +514,14 @@ function frame(now){
     if (Math.random() < 0.008){ b.tx = clamp(b.x + (Math.random()-0.5)*400, 100, WORLD_W-100); b.tz = 0.3+Math.random()*0.5; }
     b.x += clamp(b.tx - b.x, -30, 30) * dt * 1.6;
     b.z += clamp(b.tz - b.z, -0.1, 0.1) * dt * 1.6;
+  });
+  // ducks paddle slow circles on the pond
+  ducks.forEach(function(dk){
+    dk.a += dk.sp * dt;
+    dk.flap += dt * 3;
+    if (Math.random() < dt * 0.25){
+      ripples.push({ r: 3, a: 0.35, x: Math.cos(dk.a)*dk.r, y: Math.sin(dk.a)*dk.r*0.24 + 6 });
+    }
   });
   // campfire particles
   var fireLit = dark > 0.28 || (man.state==='sit' && Math.abs(man.x-3050)<130);
@@ -654,6 +669,19 @@ function frame(now){
     g.fillStyle = rgba(pal.trees, 0.85);
     g.beginPath(); g.ellipse(x - 110*s, y + 12*s, 12*s, 5*s, 0, 0, 6.29); g.fill();
     g.beginPath(); g.ellipse(x + 130*s, y - 6*s, 10*s, 4.5*s, 0, 0, 6.29); g.fill();
+    // ducks
+    ducks.forEach(function(dk){
+      var dx2 = x + Math.cos(dk.a)*dk.r*s;
+      var dy2 = y + Math.sin(dk.a)*dk.r*0.24*s + 6*s;
+      var ddir = dk.sp > 0 ? -1 : 1; // face along travel
+      var bob2 = Math.sin(dk.flap) * 0.8 * s;
+      g.fillStyle = '#f2e4c8';
+      g.beginPath(); g.ellipse(dx2, dy2 + bob2, 8*s, 4.5*s, 0, 0, 6.29); g.fill();
+      g.fillStyle = '#7d8b6f';
+      g.beginPath(); g.arc(dx2 + ddir*7*s, dy2 - 4*s + bob2, 3.2*s, 0, 6.29); g.fill();
+      g.fillStyle = '#d9a441';
+      g.beginPath(); g.ellipse(dx2 + ddir*10.5*s, dy2 - 3.5*s + bob2, 1.8*s, 1.1*s, 0, 0, 6.29); g.fill();
+    });
   }});
   drawList.push({ z: 0.60, f: function(){ // campfire
     var x = 3050 - camX, y = gy(0.60), s = zs(0.60);
@@ -745,8 +773,8 @@ function frame(now){
   });
   // the man
   drawList.push({ z: man.z, f: function(){
-    var x = man.x - camX, y = gy(man.z), s = zs(man.z) * 1.3;
-    drawMan(x, y, s, man.visFace, man.step, mode, man.speed > 120);
+    var x = man.x - camX, y = gy(man.z) - Math.sin(man.hop*Math.PI)*16*zs(man.z), s = zs(man.z) * 1.3;
+    drawMan(x, y, s, man.visFace, man.step, mode, man.speed > 120, man.squash);
     // fireflies cluster slightly around him at night? no - keep them independent
   }});
   drawList.sort(function(a,b){ return a.z - b.z; });
@@ -797,7 +825,8 @@ function frame(now){
   bubble.style.left = mpx + 'px';
   bubble.style.top = mpy + 'px';
 
-  window.__dbg = Math.round(man.x) + ',' + man.z.toFixed(2) + ' pd=' + pondD2(man.x, man.z).toFixed(2) + ' ' + man.state + ' spd=' + Math.round(spd) + ' found=' + found + ' t=' + t.toFixed(2) + ' dark=' + dark.toFixed(2);
+  window.__sit = function(){ man.state='sit'; man.pauseUntil = performance.now()+12000; man.vx=0; man.vz=0; };
+  window.__dbg = 'vx=' + man.vx.toFixed(1) + ' face=' + man.face + ' vf=' + man.visFace.toFixed(2) + ' h=' + man.heading.toFixed(2) + ' | ' + Math.round(man.x) + ',' + man.z.toFixed(2) + ' pd=' + pondD2(man.x, man.z).toFixed(2) + ' ' + man.state + ' spd=' + Math.round(spd) + ' found=' + found + ' t=' + t.toFixed(2) + ' dark=' + dark.toFixed(2);
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
