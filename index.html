@@ -252,7 +252,7 @@ for (i=0;i<2;i++) ducks.push({ a: rng()*6.28, r: 55 + rng()*90, sp: (0.10 + rng(
 var CAST = [
   { id:'you', name:'alpha', hat:'straw',
     look:{ body:'#c96f4a', sleeve:'#b45f3d', skin:'#8a5a3b', hair:'#2e2119', band:'#d9a441' },
-    interests:['building','design','music','coffee','photography','irl'],
+    interests:['building','design','music','coffee','photography','irl'], work:'any',
     facts:[
       { text:'alpha is building a world where characters wander for their people', topics:['building','irl'] },
       { text:'alpha is at georgetown, thinking about the irl connection space', topics:['irl'] },
@@ -261,7 +261,7 @@ var CAST = [
     smalltalk:['nice light.','warm out.','good sky today.','breeze feels right.','green everywhere.'] },
   { id:'theo', name:'theo', hat:'cap',
     look:{ body:'#d9a441', sleeve:'#bd8a33', skin:'#7a4a30', hair:'#241a12', band:'#a85434' },
-    interests:['building','climbing','sci-fi'],
+    interests:['building','climbing','sci-fi'], work:'wood',
     facts:[
       { text:'theo is looking for a cofounder - a climbing-gym app', topics:['building'] },
       { text:'theo swears by "the design of everyday things"', topics:['design'] },
@@ -270,7 +270,7 @@ var CAST = [
     smalltalk:['thinking through a thing.','good walking weather.','almost done with chapter one.'] },
   { id:'juno', name:'juno', hat:'brim',
     look:{ body:'#7d8b6f', sleeve:'#69775c', skin:'#a06a44', hair:'#17110c', band:'#5d5138' },
-    interests:['people','irl','coffee','food'],
+    interests:['people','irl','coffee','food'], work:'forage',
     facts:[
       { text:'juno is hosting a dinner thursday and wants one more interesting person', topics:['irl','food'] },
       { text:'juno knows a coffee cart that does a proper cardamom bun', topics:['coffee'] },
@@ -279,7 +279,7 @@ var CAST = [
     smalltalk:['you have to meet everyone.','i know someone you would like.','smell the grass?'] },
   { id:'mara', name:'mara', hat:'none',
     look:{ body:'#8a4a5e', sleeve:'#74404f', skin:'#8a5a3b', hair:'#3a2a1a', band:'#3a2a1a' },
-    interests:['photography','film','books'],
+    interests:['photography','film','books'], work:'forage',
     facts:[
       { text:'mara is shooting a night series on empty diners and wants a second shooter', topics:['photography'] },
       { text:'mara says the used bookshop on 33rd is closing - everything half off', topics:['books'] },
@@ -288,7 +288,7 @@ var CAST = [
     smalltalk:['the light here.','hold still a second.','i could shoot this.'] },
   { id:'eli', name:'eli', hat:'beanie',
     look:{ body:'#5e7a8a', sleeve:'#4e6673', skin:'#6b4226', hair:'#120d09', band:'#c96f4a' },
-    interests:['music','basketball','cooking'],
+    interests:['music','basketball','cooking'], work:'wood',
     facts:[
       { text:'eli is hosting a small listening session for his new tracks friday', topics:['music'] },
       { text:'eli runs pickup basketball tuesdays at the park', topics:['basketball'] },
@@ -297,7 +297,7 @@ var CAST = [
     smalltalk:['heard anything good lately?','this place has a sound.','hum along.'] },
   { id:'priya', name:'priya', hat:'cap',
     look:{ body:'#c95f8a', sleeve:'#a84e73', skin:'#8a5a3b', hair:'#1a120c', band:'#7d8b6f' },
-    interests:['events','building','art'],
+    interests:['events','building','art'], work:'craft',
     facts:[
       { text:'priya says the founder talk thursday is actually worth going to', topics:['building','events'] },
       { text:'priya has a list of the good openings this month', topics:['art','events'] },
@@ -306,7 +306,7 @@ var CAST = [
     smalltalk:['are you going to the thing?','i have a list.','busy week.'] },
   { id:'noor', name:'noor', hat:'brim',
     look:{ body:'#b4622f', sleeve:'#9a5226', skin:'#7a4a30', hair:'#241a12', band:'#d9a441' },
-    interests:['hiking','climbing','outdoors'],
+    interests:['hiking','climbing','outdoors'], work:'fish',
     facts:[
       { text:'noor is hiking old rag mountain saturday', topics:['hiking'] },
       { text:'noor is looking for a climbing partner', topics:['climbing'] },
@@ -319,7 +319,7 @@ function mkChar(def){
     id: def.id, name: def.name, look: def.look, hat: def.hat,
     interests: def.interests,
     facts: def.facts.map(function(f){ return { text: f.text, topics: f.topics, shared: {} }; }),
-    smalltalk: def.smalltalk, memory: [],
+    smalltalk: def.smalltalk, memory: [], goods: {},
     x: 0, z: 0, vx: 0, vz: 0,
     face: 1, visFace: 1, lastFace: 1, turnT: 0, squash: 1, step: 0,
     idleT: 0, stretchT: 0, tipT: 0, waveT: 0, hop: 0,
@@ -374,6 +374,24 @@ function pickTarget(c){
 
 function newLeg(c){
   c.state = 'stroll';
+  // stock run - surplus goods go to the market stall
+  if (stallDone() && Math.random() < 0.3 && hasSurplus(c)){
+    c.stockRun = true;
+    c.tx = 2400 + (Math.random()-0.5)*30; c.tz = 0.58 + Math.random()*0.05;
+    c.vias = []; c.place = null; c.speed = 60 + Math.random()*20;
+    return;
+  }
+  // a work leg - go labor somewhere you can be watched
+  if (Math.random() < 0.28){
+    var wt = pickWorkType(c);
+    if (wt){
+      var tgt = workTarget(c, wt);
+      c.workLeg = wt;
+      c.tx = tgt.x; c.tz = tgt.z; c.vias = tgt.vias || []; c.place = null;
+      c.speed = 58 + Math.random()*26;
+      return;
+    }
+  }
   var t = pickTarget(c);
   c.speed = 54 + Math.random()*30;
   c.tx = t.x; c.tz = t.z; c.place = t.place || null; c.vias = t.vias || [];
@@ -519,6 +537,11 @@ function drawMan(x, y, s, face, step, mode, running, squash, stretch, tip, look,
       lax = 6 + hw*5; lay = -34 + Math.abs(hw)*3;
       rax = 12 - hw*3; ray = -30 - hw*6;
     }
+    if (mode === 'forage'){
+      var pk = Math.sin(step*2);
+      lax = 2 + pk*4; lay = -14 + Math.abs(pk)*2;
+      rax = 8 - pk*3; ray = -16 - pk*3;
+    }
     if (stretch > 0){
       lax = lax + (-13 - lax) * stretch; lay = lay + (-58 - lay) * stretch;
       rax = rax + (13 - rax) * stretch;  ray = ray + (-58 - ray) * stretch;
@@ -542,6 +565,14 @@ function drawMan(x, y, s, face, step, mode, running, squash, stretch, tip, look,
   // hair
   g.fillStyle = look.hair;
   g.beginPath(); g.arc(2, -56.5, 9.5, Math.PI*1.02, Math.PI*1.98); g.fill();
+  // fishing rod
+  if (mode === 'fishsit'){
+    g.strokeStyle = '#5d4630'; g.lineWidth = 2; g.lineCap = 'round';
+    g.beginPath(); g.moveTo(8, -38); g.lineTo(34, -52); g.stroke();
+    g.strokeStyle = 'rgba(60,44,30,0.45)'; g.lineWidth = 0.8;
+    var ld = Math.sin(step*2)*1.5;
+    g.beginPath(); g.moveTo(34, -52); g.lineTo(40 + ld, -6); g.stroke();
+  }
   // hats
   g.fillStyle = look.band;
   if (hat === 'straw'){
@@ -588,7 +619,7 @@ function drawDeer(x, y, s, flip, color){
 }
 
 // ---------- encounters ----------
-var pairCd = {}, lastMeet = -1e9, meetCount = 0;
+var pairCd = {}, lastMeet = -1e9, meetCount = 0, lastMeetInfo = null;
 function pairKey(a, b){ return a.id < b.id ? a.id + '|' + b.id : b.id + '|' + a.id; }
 var CHAT = ['how is the wandering?', 'been up to the overlook?', 'this valley, right?', 'found anything good?', 'the light today.'];
 var PARTS = ['see you around.', 'enjoy the walk.', 'later.'];
@@ -610,6 +641,7 @@ function startMeet(a, b, now, t){
   a.x = mid - 34; b.x = mid + 34; a.z = mz; b.z = mz;
   a.face = 1; a.lastFace = 1; a.visFace = 1;
   b.face = -1; b.lastFace = -1; b.visFace = -1;
+  lastMeetInfo = { a: a, b: b, x: mid, until: now + 7000 };
   a.tipT = 1.3; b.tipT = 1.3;          // hats off - literally
   a.idleT = 0; b.idleT = 0;
   sayFor(a, greetFor(t), 2400);
@@ -663,6 +695,7 @@ function resolveExchange(a, b, now, t){
 
 // ---------- building the world up together ----------
 var PROJECTS = [
+  { id:'stall',    name:'the market stall', x: 2400, z: 0.58 },  // the agora - goods gather here
   { id:'bench',    name:'a bench',    x: 3102, z: 0.70 },   // by the campfire, faces the fire
   { id:'cairn',    name:'a cairn',    x: 3700, z: 0.34 },   // at the overlook
   { id:'lantern',  name:'a lantern',  x: 1660, z: 0.55 },   // at the dock approach
@@ -672,7 +705,7 @@ var PROJECTS = [
 PROJECTS.forEach(function(pj){ pj.done = false; });
 var buildParts = [], forcedProject = null;
 var build = { active: null, nextAt: 75 + Math.random()*60 };
-if (/[?&]fresh=1/.test(location.search)){ try { localStorage.removeItem('valley-built'); } catch(e){} }
+if (/[?&]fresh=1/.test(location.search)){ try { localStorage.removeItem('valley-built'); localStorage.removeItem('valley-goods'); } catch(e){} }
 try {
   JSON.parse(localStorage.getItem('valley-built') || '[]').forEach(function(id){
     var pj = PROJECTS.filter(function(k){ return k.id === id; })[0];
@@ -682,15 +715,130 @@ try {
 function saveBuilt(){
   try { localStorage.setItem('valley-built', JSON.stringify(PROJECTS.filter(function(pj){ return pj.done; }).map(function(pj){ return pj.id; }))); } catch(e){}
 }
+var savedGoodsEarly = null;
+try { savedGoodsEarly = JSON.parse(localStorage.getItem('valley-goods') || 'null'); } catch(e){}
 function dustPoof(pj){
   for (var di = 0; di < 10; di++) buildParts.push({ x: pj.x + (Math.random()-0.5)*50, z: pj.z, y: -4, vy: -(12+Math.random()*20), life: 0.5+Math.random()*0.6, s: 2+Math.random()*2.5 });
+}
+
+// ---------- the agora: labor, goods, trade ----------
+var stallStock = {};
+var tradeFly = [], goodsPops = [];
+if (savedGoodsEarly){
+  if (savedGoodsEarly.stall) stallStock = savedGoodsEarly.stall;
+  if (savedGoodsEarly.inv) chars.forEach(function(c){ if (savedGoodsEarly.inv[c.id]) c.goods = savedGoodsEarly.inv[c.id]; });
+}
+var WANTS = {
+  you:   ['fish','berries','wood','craft'],
+  theo:  ['wood','craft'],
+  juno:  ['berries','craft'],
+  mara:  ['berries','craft'],
+  eli:   ['fish','berries'],
+  priya: ['craft','berries'],
+  noor:  ['berries','wood']
+};
+var CATCH_LINES = {
+  fish:   ['got one.','a keeper.'],
+  forage: ['these are good.','enough for jam.'],
+  wood:   ['good grain.','that will do.'],
+  craft:  ['coming along.','almost there.']
+};
+function saveGoods(){
+  try {
+    var inv = {};
+    chars.forEach(function(c){ inv[c.id] = c.goods; });
+    localStorage.setItem('valley-goods', JSON.stringify({ inv: inv, stall: stallStock }));
+  } catch(e){}
+}
+function stallDone(){
+  var pj = PROJECTS.filter(function(k){ return k.id === 'stall'; })[0];
+  return pj && pj.done;
+}
+function hasSurplus(c){
+  return ['fish','berries','wood','craft'].some(function(k){ return (c.goods[k] || 0) >= 3; });
+}
+function pickWorkType(c){
+  var type = c.work === 'any' ? ['fish','forage','wood','craft'][Math.floor(Math.random()*4)] : c.work;
+  if (type === 'fish'){
+    var busy = chars.some(function(k){ return k !== c && ((k.state === 'labor' && k.laborType === 'fish') || k.workLeg === 'fish'); });
+    if (busy) return null;   // one fisher at a time - it is a small dock
+  }
+  return type;
+}
+function workTarget(c, type){
+  if (type === 'fish') return { x: DOCK.bx, z: DOCK.bz, vias: [ { x: DOCK.approach.x, z: DOCK.approach.z }, { x: DOCK.ax, z: DOCK.az } ] };
+  if (type === 'forage') return { x: 460 + Math.random()*240, z: 0.5 + Math.random()*0.25 };
+  if (type === 'wood') return { x: 1080 + (Math.random()-0.5)*80, z: 0.38 + Math.random()*0.06 };
+  return { x: 3102, z: 0.70 }; // craft at the fire
+}
+function startLabor(c, now){
+  var type = c.workLeg; c.workLeg = null;
+  c.state = 'labor'; c.laborType = type;
+  c.laborT = 22 + Math.random()*18; c.workT = 0; c.vx = 0; c.vz = 0;
+  if (type === 'fish'){ c.x = DOCK.bx; c.z = DOCK.bz; c.face = 1; }
+  else if (type === 'craft'){ c.x = 3102; c.z = 0.70; c.face = -1; }
+  c.lastFace = c.face; c.visFace = c.face; c.idleT = 0;
+  if (Math.random() < 0.4) sayFor(c, type === 'fish' ? 'they are biting today.' : type === 'forage' ? 'good picking here.' : type === 'wood' ? 'good grain in this one.' : 'time to make something.', 2600);
+}
+function doStock(c){
+  var moved = 0;
+  ['fish','berries','wood','craft'].forEach(function(k){
+    var have = c.goods[k] || 0;
+    if (have > 1){ stallStock[k] = (stallStock[k] || 0) + (have - 1); c.goods[k] = 1; moved += have - 1; }
+  });
+  if (moved){ saveGoods(); sayFor(c, 'stocking up.', 2000); }
+}
+function resolveTrade(a, b, now){
+  [[a,b],[b,a]].forEach(function(pair){
+    var from = pair[0], to = pair[1];
+    var want = WANTS[to.id] || [];
+    for (var wi = 0; wi < want.length; wi++){
+      var k = want[wi];
+      if ((from.goods[k] || 0) > 1){
+        from.goods[k]--; to.goods[k] = (to.goods[k] || 0) + 1;
+        tradeFly.push({ a: from, b: to, kind: k, t: 0 });
+        if (Math.random() < 0.5) sayFor(from, 'for you.', 1600);
+        saveGoods();
+        break;
+      }
+    }
+  });
+}
+function drawGood(kind, x, y, s){
+  if (kind === 'fish'){
+    g.fillStyle = '#8aa5b5';
+    g.beginPath(); g.ellipse(x, y, 5*s, 2.6*s, 0, 0, 6.29); g.fill();
+    g.beginPath(); g.moveTo(x + 4*s, y); g.lineTo(x + 8*s, y - 2.6*s); g.lineTo(x + 8*s, y + 2.6*s); g.closePath(); g.fill();
+  } else if (kind === 'berries'){
+    g.fillStyle = '#8a4a5e';
+    [[-2.6,1.4],[2.6,1.4],[0,-2.2]].forEach(function(o){ g.beginPath(); g.arc(x + o[0]*s, y + o[1]*s, 2.2*s, 0, 6.29); g.fill(); });
+  } else if (kind === 'wood'){
+    g.strokeStyle = '#8a6a4a'; g.lineWidth = 2.4*s; g.lineCap = 'round';
+    g.beginPath(); g.moveTo(x - 5*s, y + 2*s); g.lineTo(x + 5*s, y - 2*s); g.stroke();
+    g.beginPath(); g.moveTo(x - 5*s, y - 2*s); g.lineTo(x + 5*s, y + 2*s); g.stroke();
+  } else {
+    g.fillStyle = '#d9a441';
+    g.beginPath(); g.ellipse(x, y, 3.6*s, 2.6*s, 0, 0, 6.29); g.fill();
+    g.beginPath(); g.arc(x + 3*s, y - 2.4*s, 1.6*s, 0, 6.29); g.fill();
+  }
 }
 
 // ---------- per-character update ----------
 function updateChar(c, dt, now, t){
   var isV = (c === man);
   c.spd = Math.hypot(c.vx, c.vz);
-  if (c.state === 'build'){
+  if (c.state === 'labor'){
+    c.laborT -= dt;
+    c.workT += dt;
+    if (Math.random() < dt * 0.09){
+      c.goods[c.laborType] = (c.goods[c.laborType] || 0) + 1;
+      saveGoods();
+      goodsPops.push({ x: c.x, z: c.z, kind: c.laborType, t: 0 });
+      if (c.laborType === 'fish') ripples.push({ r: 6, a: 0.6, x: -100 + Math.random()*50, y: 8 + Math.random()*8 });
+      if (Math.random() < 0.3) sayFor(c, CATCH_LINES[c.laborType][Math.floor(Math.random()*CATCH_LINES[c.laborType].length)], 1800);
+    }
+    if (c.laborT <= 0){ c.state = 'pause'; c.pauseUntil = now + 400; }
+  } else if (c.state === 'build'){
     c.workT = (c.workT || 0) + dt;
   } else if (c.state === 'meet'){
     var o = c.meetWith;
@@ -705,6 +853,7 @@ function updateChar(c, dt, now, t){
       if (c.meetLead){
         sayFor(c, CHAT[Math.floor(Math.random()*CHAT.length)], 2400);
         resolveExchange(c, o, now, t);
+        resolveTrade(c, o, now);
       }
     }
     if (c.meetT > 5.2 && c.beat < 3){
@@ -732,10 +881,12 @@ function updateChar(c, dt, now, t){
     var dist = Math.hypot(c.tx - c.x, (c.tz - c.z) * 900); // z compressed space
     if (dist < 26 && !c.vias.length && c.buildRole){
       c.state = 'pause'; c.pauseUntil = now + 90000; c.vx = 0; c.vz = 0;  // crew waits at the site
-    } else if (dist < 26 && !c.vias.length){
+    } else if (dist < ((c.workLeg === 'fish' || (c.place && c.place.id === 'dock')) ? 85 : 26) && !c.vias.length){
       var pool = thoughtPool(t);
       var p = c.place;
-      if (p && p.sit && Math.random() < (isV ? 0.5 : 0.4)){
+      if (c.workLeg){ startLabor(c, now); }
+      else if (c.stockRun){ doStock(c); c.state = 'pause'; c.pauseUntil = now + 1400; c.stockRun = false; }
+      else if (p && p.sit && Math.random() < (isV ? 0.5 : 0.4)){
         c.state = 'sit';
         c.pauseUntil = now + 7000 + Math.random()*7000;
         if (p.id === 'dock'){ c.x = p.x; c.z = p.z; c.face = 1; c.lastFace = 1; c.visFace = 1; }
@@ -811,9 +962,11 @@ function updateChar(c, dt, now, t){
   var squash = 1;
   if (c.turnT > 0){ c.turnT -= dt; squash = 1 - 0.16*Math.sin(Math.PI*Math.max(0, c.turnT)/0.15); }
   c.squash = squash;
-  c.mode = c.state === 'sit' ? 'sit' : (c.state === 'build' ? 'work' : (c.spd > 6 ? 'walk' : 'idle'));
+  c.mode = c.state === 'sit' ? 'sit' : (c.state === 'build' ? 'work' : (c.state === 'labor' ? (c.laborType === 'fish' ? 'fishsit' : (c.laborType === 'forage' ? 'forage' : 'work')) : (c.spd > 6 ? 'walk' : 'idle')));
   if (c.mode === 'idle') c.step += dt * 2;
   else if (c.mode === 'work') c.step += dt * 7;
+  else if (c.mode === 'forage') c.step += dt * 5;
+  else if (c.mode === 'fishsit') c.step += dt * 1.5;
   if (c.mode === 'idle' || c.mode === 'sit'){ c.idleT += dt; if (c.idleT > 3.5 && c.stretchT <= 0 && c.state !== 'meet') c.stretchT = 1.6; }
   else c.idleT = 0;
   if (c.stretchT > 0) c.stretchT = Math.max(0, c.stretchT - dt);
@@ -915,9 +1068,22 @@ function frame(now){
   }
   buildParts.forEach(function(bp){ bp.y += bp.vy*dt; bp.x += Math.sin(time*5 + bp.y*0.3)*6*dt; bp.life -= dt; });
   buildParts = buildParts.filter(function(bp){ return bp.life > 0; });
+  tradeFly.forEach(function(tf){ tf.t += dt * 1.1; });
+  tradeFly = tradeFly.filter(function(tf){ return tf.t < 1; });
+  goodsPops.forEach(function(gp2){ gp2.t += dt; });
+  goodsPops = goodsPops.filter(function(gp2){ return gp2.t < 1.2; });
 
-  // camera
-  var camTarget = clamp(man.x - W*0.5, 0, Math.max(0, WORLD_W - W));
+  // camera - his character first, but frame the interesting thing when it is near
+  var focusX = man.x, interestX = null;
+  if (build.active && build.active.stage === 'work' && man.state !== 'build' && man.state !== 'meet') interestX = build.active.proj.x;
+  else if (lastMeetInfo && lastMeetInfo.until > now && lastMeetInfo.a !== man && lastMeetInfo.b !== man && man.state === 'stroll') interestX = lastMeetInfo.x;
+  else {
+    for (var li = 0; li < chars.length; li++){
+      if (chars[li] !== man && chars[li].state === 'labor' && man.state === 'stroll'){ interestX = chars[li].x; break; }
+    }
+  }
+  if (interestX !== null && Math.abs(interestX - man.x) < 1100) focusX = (man.x + interestX) / 2;
+  var camTarget = clamp(focusX - W*0.5, 0, Math.max(0, WORLD_W - W));
   camX += (camTarget - camX) * (1 - Math.exp(-dt*2.4));
 
   // ---- creatures ----
@@ -1366,6 +1532,26 @@ function frame(now){
         g.beginPath(); g.ellipse(x + 12*s, y - 15*s, 7*s, 5*s, 0, 0, 6.29); g.fill();
         g.strokeStyle = '#6d5138'; g.lineWidth = 1.6*s;
         g.beginPath(); g.arc(x + 12*s, y - 17*s, 6*s, Math.PI, 0); g.stroke();
+      } else if (pj.id === 'stall'){
+        g.strokeStyle = '#5d4630'; g.lineWidth = 3.2*s; g.lineCap = 'round';
+        g.beginPath(); g.moveTo(x - 34*s, y); g.lineTo(x - 34*s, y - 44*s); g.stroke();
+        g.beginPath(); g.moveTo(x + 34*s, y); g.lineTo(x + 34*s, y - 44*s); g.stroke();
+        g.fillStyle = '#c96f4a';
+        g.beginPath(); g.moveTo(x - 42*s, y - 44*s); g.lineTo(x + 42*s, y - 44*s); g.lineTo(x + 34*s, y - 56*s); g.lineTo(x - 34*s, y - 56*s); g.closePath(); g.fill();
+        g.fillStyle = 'rgba(255,253,248,0.75)';
+        for (var sti = -1; sti <= 1; sti++){
+          g.beginPath(); g.moveTo(x + sti*28*s - 6*s, y - 44*s); g.lineTo(x + sti*28*s + 6*s, y - 44*s); g.lineTo(x + sti*28*s + 2*s, y - 56*s); g.lineTo(x + sti*28*s - 14*s, y - 56*s); g.closePath(); g.fill();
+        }
+        g.fillStyle = '#8a6a4a';
+        roundRect(x - 38*s, y - 18*s, 76*s, 6*s, 2*s); g.fill();
+        var si2 = 0;
+        ['fish','berries','wood','craft'].forEach(function(k3){
+          var n2 = Math.min(stallStock[k3] || 0, 3);
+          for (var gi3 = 0; gi3 < n2; gi3++){
+            drawGood(k3, x - 27*s + si2 * 18*s, y - 24*s, s * 0.9);
+            si2++;
+          }
+        });
       } else if (pj.id === 'signpost'){
         g.strokeStyle = '#5d4630'; g.lineWidth = 3.4*s; g.lineCap = 'round';
         g.beginPath(); g.moveTo(x, y); g.lineTo(x, y - 40*s); g.stroke();
@@ -1435,7 +1621,7 @@ function frame(now){
     drawList.push({ z: c.z + 0.001, f: function(){
       var x = c.x - camX; if (x < -60 || x > W + 60) return;
       var y = gy(c.z) - Math.sin(c.hop*Math.PI)*16*zs(c.z), s = zs(c.z) * 1.3;
-      drawMan(x, y, s, c.visFace, c.step, c.mode, false, c.squash, c.stretchAmt, c.tipAmt, c.look, c.hat, c.waveAmt);
+      drawMan(x, y, s, c.visFace, c.step, c.mode, false, c.mode === 'forage' ? 0.84 : c.squash, c.stretchAmt, c.tipAmt, c.look, c.hat, c.waveAmt);
     }});
   });
   drawList.sort(function(a,b){ return a.z - b.z; });
@@ -1444,6 +1630,17 @@ function frame(now){
   buildParts.forEach(function(bp){
     g.fillStyle = 'rgba(190,160,120,' + clamp(bp.life,0,0.6).toFixed(3) + ')';
     g.beginPath(); g.arc(bp.x - camX, gy(bp.z) - 8*zs(bp.z) + bp.y, bp.s, 0, 6.29); g.fill();
+  });
+  // goods: harvest pops and trades changing hands
+  goodsPops.forEach(function(gp2){
+    g.globalAlpha = clamp(1.2 - gp2.t, 0, 1);
+    drawGood(gp2.kind, gp2.x - camX, gy(gp2.z) - (46 + gp2.t*18) * zs(gp2.z), zs(gp2.z));
+    g.globalAlpha = 1;
+  });
+  tradeFly.forEach(function(tf){
+    var k2 = tf.t, ax3 = tf.a.x + (tf.b.x - tf.a.x) * k2, az3 = tf.a.z + (tf.b.z - tf.a.z) * k2;
+    var ay3 = gy(az3) - 56 * zs(az3) - Math.sin(k2 * Math.PI) * 22;
+    drawGood(tf.kind, ax3 - camX, ay3, zs(az3));
   });
 
   // foreground blades - big soft framing at the bottom edge
@@ -1525,6 +1722,24 @@ function frame(now){
   };
   window.__tip = function(){ man.hop = 1; man.tipT = 1.3; };
   window.__sit = function(f){ man.state='sit'; man.pauseUntil = performance.now()+12000; man.vx=0; man.vz=0; if (f){ man.face=f; man.lastFace=f; man.visFace=f; } };
+  window.__work = function(id, type){
+    var c = man;
+    chars.forEach(function(k){ if (k.id === id) c = k; });
+    c.workLeg = type || (c.work === 'any' ? 'forage' : c.work);
+    var tgt = workTarget(c, c.workLeg);
+    c.state = 'stroll'; c.tx = tgt.x; c.tz = tgt.z; c.vias = tgt.vias || []; c.speed = 110; c.place = null;
+  };
+  window.__char = function(id){
+    var c = man;
+    chars.forEach(function(k){ if (k.id === id) c = k; });
+    return c.state + ' wl=' + (c.workLeg || '-') + ' sr=' + (c.stockRun ? 1 : 0) + ' @' + Math.round(c.x) + ',' + c.z.toFixed(2) + ' tx=' + Math.round(c.tx || 0) + ',' + (c.tz || 0).toFixed(2) + ' vias=' + (c.vias ? c.vias.length : 0) + ' fish=' + (c.goods.fish || 0) + ' laborT=' + Math.round(c.laborT || 0);
+  };
+  window.__give = function(id, kind, n){
+    var c = man;
+    chars.forEach(function(k){ if (k.id === id) c = k; });
+    c.goods[kind || 'fish'] = n || 3;
+  };
+  window.__goods = function(){ return 'stall=' + JSON.stringify(stallStock) + ' | ' + chars.map(function(c){ return c.id + JSON.stringify(c.goods); }).join(' '); };
   window.__build = function(id){
     var pj = PROJECTS.filter(function(k){ return k.id === (id || 'bench') && !k.done; })[0] || PROJECTS.filter(function(k){ return !k.done; })[0];
     if (!pj) return 'all built';
