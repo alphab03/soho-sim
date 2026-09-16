@@ -153,12 +153,14 @@ var PLACES = [
   { id:'oak',    name:'the old oak',      sub:'older than the valley', x:1080, z:0.34, r:110, sit:true  },
   { id:'pond',   name:'the pond',         sub:'still water',           x:1900, z:0.42, r:150, sit:true  },
   { id:'fire',   name:'the campfire',     sub:'warm even unlit',       x:3050, z:0.60, r:110, sit:true  },
-  { id:'rock',   name:'the overlook',     sub:'can see everything',    x:3750, z:0.30, r:110, sit:false }
+  { id:'rock',   name:'the overlook',     sub:'can see everything',    x:3750, z:0.30, r:110, sit:false },
+  { id:'dock',   name:'the dock',         sub:'feet over the water',     x:1800, z:0.50, r:70,  sit:true  }
 ];
 PLACES.forEach(function(p){ p.found = false; });
 
 // the pond is water - he walks around it, not through it
 var POND = { x: 1900, z: 0.44, rx: 250, rz: 0.115 };
+var DOCK = { ax: 1690, az: 0.50, bx: 1800, bz: 0.50, approach: { x: 1680, z: 0.62 } };
 function pondD2(x, z){ var ex = (x - POND.x)/POND.rx, ez = (z - POND.z)/POND.rz; return ex*ex + ez*ez; }
 
 // the creek - outflow from the pond, meanders toward the camera
@@ -224,15 +226,17 @@ var man = {
   hop: 0,
   tx: START_X, tz: START_Z, speed: 66,
   pauseUntil: 0, sitUntil: 0,
-  heading: 0
+  heading: 0, vias: []
 };
 if (pondD2(man.x, man.z) < 1.15) man.z = POND.z + POND.rz * 2.4;  // never stand in the water
 var camX = clamp(man.x - W*0.5, 0, WORLD_W - W);
 
 function pickTarget(){
   var un = PLACES.filter(function(p){ return !p.found; });
+  if (!un.length) un = PLACES;   // all found - revisit favorites
   if (un.length && Math.random() < 0.42){
     var p = un[Math.floor(Math.random()*un.length)];
+    if (p.id === 'dock') return { x: DOCK.bx, z: DOCK.bz, place: p, vias: [ { x: DOCK.approach.x, z: DOCK.approach.z }, { x: DOCK.ax, z: DOCK.az } ] };
     return { x: p.x + (Math.random()-0.5)*30, z: clamp(p.z + 0.06 + Math.random()*0.1, 0.18, 0.9), place: p };
   }
   for (var i=0;i<14;i++){
@@ -251,7 +255,11 @@ function newLeg(){
   var hurry = Math.random() < 0.12;
   var t = pickTarget();
   if (hurry){ man.speed = 195; man.tx = clamp(man.x + (Math.random()<0.5?-1:1)*(250+Math.random()*200), 120, WORLD_W-120); man.tz = clamp(man.z + (Math.random()-0.5)*0.2, 0.2, 0.88); }
-  else { man.speed = 58 + Math.random()*26; man.tx = t.x; man.tz = t.z; man.place = t.place || null; }
+  else { man.speed = 58 + Math.random()*26; man.tx = t.x; man.tz = t.z; man.place = t.place || null; man.vias = t.vias || []; }
+  if (pondD2(man.x, man.z) < 1.3 && !(man.place && man.place.id === 'dock')){
+    // leaving the dock: walk back along the planks to shore first
+    man.vias = [ { x: DOCK.ax, z: DOCK.az }, { x: DOCK.approach.x, z: DOCK.approach.z } ].concat(man.vias);
+  }
 }
 
 // thoughts
@@ -414,18 +422,30 @@ function frame(now){
   // ---- man AI ----
   var spd = Math.hypot(man.vx, man.vz);
   if (man.state === 'pause' || man.state === 'sit'){
-    if (now >= man.pauseUntil) newLeg();
+    if (now >= man.pauseUntil){
+      if (man.state === 'pause' && man.resume){
+        man.tx = man.resume.tx; man.tz = man.resume.tz; man.place = man.resume.place;
+        man.vias = man.resume.vias; man.speed = man.resume.speed; man.resume = null;
+        man.state = 'stroll';
+      } else newLeg();
+    }
   } else {
-    var dx = man.tx - man.x, dz = man.tz - man.z;
-    var dist = Math.hypot(dx, dz * 900); // z compressed space
-    if (dist < 26){
+    if (man.vias.length){
+      var v0 = man.vias[0];
+      if (Math.hypot(v0.x - man.x, (v0.z - man.z) * 900) < 24) man.vias.shift();
+    }
+    var aimX = man.vias.length ? man.vias[0].x : man.tx;
+    var aimZ = man.vias.length ? man.vias[0].z : man.tz;
+    var dx = aimX - man.x, dz = aimZ - man.z;
+    var dist = Math.hypot(man.tx - man.x, (man.tz - man.z) * 900); // z compressed space
+    if (dist < 26 && !man.vias.length){
       var pool = thoughtPool(t);
       var p = man.place;
       if (p && p.sit && Math.random() < 0.5){
         man.state = 'sit';
         man.pauseUntil = now + 7000 + Math.random()*7000;
-        man.x = p.x + 52; man.z = p.z + 0.10;   // settle beside it, not on top of it
-        man.face = -1; man.lastFace = -1; man.visFace = -1;      // turn to look at it
+        if (p.id === 'dock'){ man.x = p.x; man.z = p.z; man.face = 1; man.lastFace = 1; man.visFace = 1; }
+        else { man.x = p.x + 52; man.z = p.z + 0.10; man.face = -1; man.lastFace = -1; man.visFace = -1; } // settle beside it, not on top of it
         say(p.id === 'fire' ? 'warm.' : p.sub + '.', 3200);
       } else {
         man.state = 'pause';
@@ -439,7 +459,7 @@ function frame(now){
       var desired = Math.atan2(dx, dz*900);
       // curve around the pond instead of wading through it
       var pd = pondD2(man.x + man.vx*0.6, man.z + man.vz*0.6*4);
-      if (pd < 2.1){
+      if (pd < 2.1 && !man.vias.length && !(man.place && man.place.id === 'dock')){
         var ex = (man.x - POND.x)/POND.rx, ez = (man.z - POND.z)/POND.rz;
         var tAng = Math.atan2(-ez, ex);              // tangent around the ellipse
         var tAng2 = tAng + Math.PI;                  // other direction
@@ -478,10 +498,13 @@ function frame(now){
           showToast(p);
           man.hop = 1;          // little jump of joy
           man.tipT = 1.3;         // and a tip of the hat
-          man.state = 'pause';
-          man.pauseUntil = now + 5000;
-          man.tx = man.x; man.tz = man.z;
-          man.vx = 0; man.vz = 0;
+          if (p.id !== 'dock'){   // on the dock he keeps walking to the end
+            man.resume = { tx: man.tx, tz: man.tz, place: man.place, vias: man.vias, speed: man.speed };
+            man.state = 'pause';
+            man.pauseUntil = now + 5000;
+            man.tx = man.x; man.tz = man.z;
+            man.vx = 0; man.vz = 0;
+          }
         }
       });
     }
@@ -801,6 +824,28 @@ function frame(now){
       drawTree(x, y, s, rgba(pal.trees, 1), Math.sin(time*0.8 + mt[0]) * wind * 1.2);
     }});
   });
+  drawList.push({ z: 0.495, f: function(){ // the dock - planks out over the pond
+    var s = zs(0.50);
+    var ax2 = DOCK.ax - camX, bx2 = DOCK.bx - camX, y = gy(0.50);
+    if (bx2 < -60 || ax2 > W + 60) return;
+    // posts
+    g.strokeStyle = '#5d4630'; g.lineWidth = 2.6 * s; g.lineCap = 'round';
+    [DOCK.ax, (DOCK.ax + DOCK.bx) / 2, DOCK.bx].forEach(function(px4){
+      var sx4 = px4 - camX;
+      g.beginPath(); g.moveTo(sx4, y + 1*s); g.lineTo(sx4, y + 10*s); g.stroke();
+    });
+    // deck side + top
+    g.strokeStyle = '#6d5138'; g.lineWidth = 8.5 * s;
+    g.beginPath(); g.moveTo(ax2, y + 2.5*s); g.lineTo(bx2, y + 2.5*s); g.stroke();
+    g.strokeStyle = '#8a6a4a'; g.lineWidth = 6.5 * s;
+    g.beginPath(); g.moveTo(ax2, y); g.lineTo(bx2, y); g.stroke();
+    // plank seams
+    g.strokeStyle = 'rgba(60,44,30,0.5)'; g.lineWidth = 1.1 * s;
+    for (var pi2 = 1; pi2 < 10; pi2++){
+      var sx5 = ax2 + (bx2 - ax2) * pi2 / 10;
+      g.beginPath(); g.moveTo(sx5, y - 2.8*s); g.lineTo(sx5, y + 2.8*s); g.stroke();
+    }
+  }});
   drawList.push({ z: 0.42, f: function(){ // pond
     var x = 1900 - camX, y = gy(0.44), s = zs(0.44);
     if (x < -400 || x > W + 400) return;
@@ -1011,8 +1056,13 @@ function frame(now){
   bubble.style.left = mpx + 'px';
   bubble.style.top = mpy + 'px';
 
+  window.__dock = function(){
+    var p = PLACES.filter(function(k){ return k.id === 'dock'; })[0];
+    man.state = 'stroll'; man.place = p; man.tx = DOCK.bx; man.tz = DOCK.bz; man.speed = 66; man.pauseUntil = 0;
+    man.vias = [ { x: DOCK.approach.x, z: DOCK.approach.z }, { x: DOCK.ax, z: DOCK.az } ];
+  };
   window.__tip = function(){ man.hop = 1; man.tipT = 1.3; };
-  window.__sit = function(){ man.state='sit'; man.pauseUntil = performance.now()+12000; man.vx=0; man.vz=0; };
+  window.__sit = function(f){ man.state='sit'; man.pauseUntil = performance.now()+12000; man.vx=0; man.vz=0; if (f){ man.face=f; man.lastFace=f; man.visFace=f; } };
   window.__dbg = 'vx=' + man.vx.toFixed(1) + ' face=' + man.face + ' vf=' + man.visFace.toFixed(2) + ' h=' + man.heading.toFixed(2) + ' | ' + Math.round(man.x) + ',' + man.z.toFixed(2) + ' pd=' + pondD2(man.x, man.z).toFixed(2) + ' ' + man.state + ' spd=' + Math.round(spd) + ' found=' + found + ' t=' + t.toFixed(2) + ' dark=' + dark.toFixed(2);
   requestAnimationFrame(frame);
 }
