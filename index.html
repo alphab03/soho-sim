@@ -57,16 +57,16 @@
   #toast span{display:block;font-family:'Inter',sans-serif;font-style:normal;font-size:10px;color:#a3938a;
     letter-spacing:.08em;text-transform:uppercase;margin-top:2px;text-align:center;}
 
-  #bubble{
+  .bub{
     position:absolute;z-index:9;left:-200px;top:-200px;transform:translate(-50%,-100%);
     background:var(--paper);border-radius:12px;padding:6px 13px;
     font-family:'Fraunces',serif;font-style:italic;font-size:13px;color:#6b5a4e;
     box-shadow:0 2px 10px rgba(58,47,40,.14), 0 0 0 1px rgba(58,47,40,.05);
     opacity:0;pointer-events:none;white-space:nowrap;transition:opacity .35s;
   }
-  #bubble::after{content:'';position:absolute;left:50%;bottom:-5px;width:10px;height:10px;
+  .bub::after{content:'';position:absolute;left:50%;bottom:-5px;width:10px;height:10px;
     background:var(--paper);transform:translateX(-50%) rotate(45deg);box-shadow:1px 1px 0 rgba(58,47,40,.05);}
-  #bubble.show{opacity:1;}
+  .bub.show{opacity:1;}
 
   #vignette{position:absolute;inset:0;z-index:5;pointer-events:none;
     background:radial-gradient(ellipse at center, transparent 60%, rgba(120,85,50,.14) 100%);}
@@ -75,10 +75,9 @@
 <body>
 <canvas id="scene"></canvas>
 <div id="vignette"></div>
-<div id="title-card"><h1>valley <em>sim</em></h1><p>he wanders on his own</p></div>
+<div id="title-card"><h1>valley <em>sim</em></h1><p>they wander for their people</p></div>
 <div id="found"><b id="found-n">0</b> / <span id="found-total">0</span><br>places found</div>
 <div id="toast"></div>
-<div id="bubble"></div>
 
 <script>
 (function(){
@@ -218,47 +217,139 @@ if (/[?&]owl=1/.test(location.search)){ owl.active = true; owl.x = 420; owl.y = 
 var ducks = [];
 for (i=0;i<2;i++) ducks.push({ a: rng()*6.28, r: 55 + rng()*90, sp: (0.10 + rng()*0.08) * (rng()<0.5?1:-1), flap: rng()*6.28 });
 
-// ---------- the little man ----------
-var man = {
-  x: START_X, z: START_Z, vx: 0, vz: 0,
-  face: 1, visFace: 1, lastFace: 1, turnT: 0, squash: 1, step: 0, idleT: 0, stretchT: 0, tipT: 0,
-  state: 'stroll',            // stroll | pause | sit
-  hop: 0,
-  tx: START_X, tz: START_Z, speed: 66,
-  pauseUntil: 0, sitUntil: 0,
-  heading: 0, vias: []
-};
-if (pondD2(man.x, man.z) < 1.15) man.z = POND.z + POND.rz * 2.4;  // never stand in the water
+// ---------- the characters ----------
+// each one wanders for its human: a persona you can see, a context card it carries, a memory of what it heard
+var CAST = [
+  { id:'you', name:'alpha', hat:'straw',
+    look:{ body:'#c96f4a', sleeve:'#b45f3d', skin:'#8a5a3b', hair:'#2e2119', band:'#d9a441' },
+    interests:['building','design','music','coffee','photography'],
+    facts:[
+      { text:'alpha is building a world where characters wander for their people', topics:['building','irl'] },
+      { text:'alpha is at georgetown, thinking about the irl connection space', topics:['irl'] },
+      { text:'alpha likes warm quiet places', topics:['design'] }
+    ],
+    smalltalk:['nice light.','warm out.','good sky today.','breeze feels right.','green everywhere.'] },
+  { id:'theo', name:'theo', hat:'cap',
+    look:{ body:'#d9a441', sleeve:'#bd8a33', skin:'#7a4a30', hair:'#241a12', band:'#a85434' },
+    interests:['building','climbing','sci-fi'],
+    facts:[
+      { text:'theo is looking for a cofounder - a climbing-gym app', topics:['building'] },
+      { text:'theo swears by "the design of everyday things"', topics:['design'] },
+      { text:'theo is re-reading dune, again', topics:['sci-fi'] }
+    ],
+    smalltalk:['thinking through a thing.','good walking weather.','almost done with chapter one.'] },
+  { id:'juno', name:'juno', hat:'brim',
+    look:{ body:'#7d8b6f', sleeve:'#69775c', skin:'#a06a44', hair:'#17110c', band:'#5d5138' },
+    interests:['people','irl','coffee','food'],
+    facts:[
+      { text:'juno is hosting a dinner thursday and wants one more interesting person', topics:['irl','food'] },
+      { text:'juno knows a coffee cart that does a proper cardamom bun', topics:['coffee'] },
+      { text:'juno is organizing a potluck for the block', topics:['food'] }
+    ],
+    smalltalk:['you have to meet everyone.','i know someone you would like.','smell the grass?'] },
+  { id:'mara', name:'mara', hat:'none',
+    look:{ body:'#8a4a5e', sleeve:'#74404f', skin:'#8a5a3b', hair:'#3a2a1a', band:'#3a2a1a' },
+    interests:['photography','film','books'],
+    facts:[
+      { text:'mara is shooting a night series on empty diners and wants a second shooter', topics:['photography'] },
+      { text:'mara says the used bookshop on 33rd is closing - everything half off', topics:['books'] },
+      { text:'mara wants to learn to develop her own film', topics:['photography','film'] }
+    ],
+    smalltalk:['the light here.','hold still a second.','i could shoot this.'] },
+  { id:'eli', name:'eli', hat:'beanie',
+    look:{ body:'#5e7a8a', sleeve:'#4e6673', skin:'#6b4226', hair:'#120d09', band:'#c96f4a' },
+    interests:['music','basketball','cooking'],
+    facts:[
+      { text:'eli is hosting a small listening session for his new tracks friday', topics:['music'] },
+      { text:'eli runs pickup basketball tuesdays at the park', topics:['basketball'] },
+      { text:'eli is making a playlist that sounds like this valley', topics:['music'] }
+    ],
+    smalltalk:['heard anything good lately?','this place has a sound.','hum along.'] },
+  { id:'priya', name:'priya', hat:'cap',
+    look:{ body:'#c95f8a', sleeve:'#a84e73', skin:'#8a5a3b', hair:'#1a120c', band:'#7d8b6f' },
+    interests:['events','building','art'],
+    facts:[
+      { text:'priya says the founder talk thursday is actually worth going to', topics:['building','events'] },
+      { text:'priya has a list of the good openings this month', topics:['art','events'] },
+      { text:'priya is tabling at the zine fair downtown', topics:['art'] }
+    ],
+    smalltalk:['are you going to the thing?','i have a list.','busy week.'] },
+  { id:'noor', name:'noor', hat:'brim',
+    look:{ body:'#b4622f', sleeve:'#9a5226', skin:'#7a4a30', hair:'#241a12', band:'#d9a441' },
+    interests:['hiking','climbing','outdoors'],
+    facts:[
+      { text:'noor is hiking old rag mountain saturday', topics:['hiking'] },
+      { text:'noor is looking for a climbing partner', topics:['climbing'] },
+      { text:'noor found a swimming hole upriver', topics:['outdoors'] }
+    ],
+    smalltalk:['boots were made for this.','uphill is the best part.','fresh air works.'] }
+];
+function mkChar(def){
+  return {
+    id: def.id, name: def.name, look: def.look, hat: def.hat,
+    interests: def.interests,
+    facts: def.facts.map(function(f){ return { text: f.text, topics: f.topics, told: false }; }),
+    smalltalk: def.smalltalk, memory: [],
+    x: 0, z: 0, vx: 0, vz: 0,
+    face: 1, visFace: 1, lastFace: 1, turnT: 0, squash: 1, step: 0,
+    idleT: 0, stretchT: 0, tipT: 0, waveT: 0, hop: 0,
+    state: 'stroll', tx: 0, tz: 0, speed: 62,
+    pauseUntil: 0, heading: 0, vias: [], place: null, resume: null,
+    meetWith: null, meetT: 0, beat: 0, meetLead: false,
+    spd: 0, mode: 'idle', stretchAmt: 0, tipAmt: 0, waveAmt: 0
+  };
+}
+var chars = CAST.map(mkChar);
+var START_SPOTS = [ [START_X, START_Z], [700, 0.5], [1500, 0.62], [2600, 0.4], [3400, 0.55], [420, 0.35], [3950, 0.66] ];
+chars.forEach(function(c, i){
+  c.x = START_SPOTS[i][0]; c.z = START_SPOTS[i][1];
+  c.tx = c.x; c.tz = c.z;
+  if (pondD2(c.x, c.z) < 1.15) c.z = POND.z + POND.rz * 2.4;  // never stand in the water
+});
+var man = chars[0];   // alpha's character - the camera follows him
+var camX = clamp(man.x - W*0.5, 0, WORLD_W - W);
 var camX = clamp(man.x - W*0.5, 0, WORLD_W - W);
 
-function pickTarget(){
+function pickTarget(c){
   var un = PLACES.filter(function(p){ return !p.found; });
   if (!un.length) un = PLACES;   // all found - revisit favorites
-  if (un.length && Math.random() < 0.42){
+  if (un.length && Math.random() < 0.52){
     var p = un[Math.floor(Math.random()*un.length)];
     if (p.id === 'dock') return { x: DOCK.bx, z: DOCK.bz, place: p, vias: [ { x: DOCK.approach.x, z: DOCK.approach.z }, { x: DOCK.ax, z: DOCK.az } ] };
     return { x: p.x + (Math.random()-0.5)*30, z: clamp(p.z + 0.06 + Math.random()*0.1, 0.18, 0.9), place: p };
   }
+  // social gravity - drift toward someone now and then; they drift toward alpha's character most
+  if (Math.random() < 0.30){
+    var o = null;
+    if (c === man){
+      var others = chars.filter(function(k){ return k !== c && k.state !== 'meet'; });
+      if (others.length && Math.random() < 0.75) o = others[Math.floor(Math.random()*others.length)];
+    } else o = man;
+    if (o){
+      var gx = clamp(o.x + (Math.random()-0.5)*150, 120, WORLD_W-120);
+      var gz = clamp(o.z + (Math.random()-0.5)*0.12, 0.2, 0.88);
+      if (pondD2(gx, gz) > 1.7 && Math.abs(gx - c.x) > 120) return { x: gx, z: gz };
+    }
+  }
   for (var i=0;i<14;i++){
     var t = { x: 120 + Math.random()*(WORLD_W-240), z: 0.2 + Math.random()*0.68 };
-    var d = Math.abs(t.x - man.x);
+    var d = Math.abs(t.x - c.x);
     if (d > 350 && d < 1400 && pondD2(t.x, t.z) > 1.7) return t;
   }
-  var fx = clamp(man.x + (Math.random()<0.5?-1:1)*500, 120, WORLD_W-120);
+  var fx = clamp(c.x + (Math.random()<0.5?-1:1)*500, 120, WORLD_W-120);
   var fz = 0.3+Math.random()*0.5;
   if (pondD2(fx, fz) < 1.7) fz = POND.z + POND.rz * 2.2;
   return { x: fx, z: fz };
 }
 
-function newLeg(){
-  man.state = 'stroll';
-  var hurry = Math.random() < 0.12;
-  var t = pickTarget();
-  if (hurry){ man.speed = 195; man.tx = clamp(man.x + (Math.random()<0.5?-1:1)*(250+Math.random()*200), 120, WORLD_W-120); man.tz = clamp(man.z + (Math.random()-0.5)*0.2, 0.2, 0.88); }
-  else { man.speed = 58 + Math.random()*26; man.tx = t.x; man.tz = t.z; man.place = t.place || null; man.vias = t.vias || []; }
-  if (pondD2(man.x, man.z) < 1.3 && !(man.place && man.place.id === 'dock')){
+function newLeg(c){
+  c.state = 'stroll';
+  var t = pickTarget(c);
+  c.speed = 54 + Math.random()*30;
+  c.tx = t.x; c.tz = t.z; c.place = t.place || null; c.vias = t.vias || [];
+  if (pondD2(c.x, c.z) < 1.3 && !(c.place && c.place.id === 'dock')){
     // leaving the dock: walk back along the planks to shore first
-    man.vias = [ { x: DOCK.ax, z: DOCK.az }, { x: DOCK.approach.x, z: DOCK.approach.z } ].concat(man.vias);
+    c.vias = [ { x: DOCK.ax, z: DOCK.az }, { x: DOCK.approach.x, z: DOCK.approach.z } ].concat(c.vias);
   }
 }
 
@@ -282,13 +373,22 @@ function showToast(p){
   clearTimeout(toastTimer);
   toastTimer = setTimeout(function(){ toast.classList.remove('show'); }, 3400);
 }
-var bubble = document.getElementById('bubble'), bubbleTimer = null;
-function say(text, ms){
-  bubble.textContent = text;
-  bubble.classList.add('show');
-  clearTimeout(bubbleTimer);
-  bubbleTimer = setTimeout(function(){ bubble.classList.remove('show'); }, ms);
+// speech bubbles - one per character, created on demand
+var bubs = {};
+function sayFor(c, text, ms){
+  var b = bubs[c.id];
+  if (!b){
+    var el = document.createElement('div');
+    el.className = 'bub';
+    document.body.appendChild(el);
+    b = bubs[c.id] = { el: el, timer: null };
+  }
+  b.el.textContent = text;
+  b.el.classList.add('show');
+  clearTimeout(b.timer);
+  b.timer = setTimeout(function(){ b.el.classList.remove('show'); }, ms);
 }
+function say(text, ms){ sayFor(man, text, ms); }
 
 // ---------- projection ----------
 function gy(z){ return horizonY + z * meadowH * 0.92; }
@@ -322,8 +422,10 @@ function drawTree(gx, gy2, s, color, sway){
   });
 }
 
-function drawMan(x, y, s, face, step, mode, running, squash, stretch, tip){
-  squash = squash || 1; stretch = stretch || 0; tip = tip || 0;
+function drawMan(x, y, s, face, step, mode, running, squash, stretch, tip, look, hat, wave){
+  squash = squash || 1; stretch = stretch || 0; tip = tip || 0; wave = wave || 0;
+  look = look || { body:'#c96f4a', sleeve:'#b45f3d', skin:'#8a5a3b', hair:'#2e2119', band:'#d9a441' };
+  hat = hat || 'straw';
   g.save();
   g.translate(x, y);
   // shadow
@@ -349,10 +451,10 @@ function drawMan(x, y, s, face, step, mode, running, squash, stretch, tip){
     g.beginPath(); g.moveTo(1, -26); g.lineTo(Math.sin(-swing)*10, -26 + 24 - Math.abs(Math.cos(swing))*2); g.stroke();
   }
   // body
-  g.fillStyle = '#c96f4a';
+  g.fillStyle = look.body;
   roundRect(-9.5, -46, 19, 22, 8); g.fill();
   // arms
-  g.lineWidth = 4.2; g.strokeStyle = '#b45f3d';
+  g.lineWidth = 4.2; g.strokeStyle = look.sleeve;
   if (!sit){
     var lax = -7 + Math.sin(-swing)*8*0.8, lay = -42 + 11;
     var rax = 7 + Math.sin(swing)*8*0.8, ray = -42 + 11;
@@ -361,6 +463,10 @@ function drawMan(x, y, s, face, step, mode, running, squash, stretch, tip){
       rax = rax + (13 - rax) * stretch;  ray = ray + (-58 - ray) * stretch;
     }
     if (tip > 0){ rax = rax + (6 - rax) * tip; ray = ray + (-63 - ray) * tip; }
+    if (wave > 0){
+      var wx2 = 14 + Math.sin(time*13)*2.5*wave, wy2 = -58;
+      rax = rax + (wx2 - rax) * wave; ray = ray + (wy2 - ray) * wave;
+    }
     g.beginPath(); g.moveTo(-7, -42); g.lineTo(lax, lay); g.stroke();
     g.beginPath(); g.moveTo(7, -42); g.lineTo(rax, ray); g.stroke();
   } else {
@@ -370,14 +476,27 @@ function drawMan(x, y, s, face, step, mode, running, squash, stretch, tip){
     g.beginPath(); g.moveTo(7, -40); g.lineTo(srx, sry); g.stroke();
   }
   // head
-  g.fillStyle = '#8a5a3b';
+  g.fillStyle = look.skin;
   g.beginPath(); g.arc(2, -55, 9.5, 0, 6.29); g.fill();
   // hair
-  g.fillStyle = '#2e2119';
+  g.fillStyle = look.hair;
   g.beginPath(); g.arc(2, -56.5, 9.5, Math.PI*1.02, Math.PI*1.98); g.fill();
-  // gold band
-  g.fillStyle = '#d9a441';
-  roundRect(-6.9, -62.5, 16.8, 3, 1.5); g.fill();
+  // hats
+  g.fillStyle = look.band;
+  if (hat === 'straw'){
+    g.beginPath(); g.ellipse(2, -61.5, 13, 2.8, 0, 0, 6.29); g.fill();
+    roundRect(-6.9, -62.5, 16.8, 3, 1.5); g.fill();
+    g.beginPath(); g.arc(2, -63, 7, Math.PI, 0); g.fill();
+  } else if (hat === 'brim'){
+    g.beginPath(); g.ellipse(2, -60, 15.5, 3.2, 0, 0, 6.29); g.fill();
+    g.beginPath(); g.arc(2, -60.5, 8.5, Math.PI, 0); g.fill();
+  } else if (hat === 'cap'){
+    g.beginPath(); g.arc(2, -59.5, 9, Math.PI, 0); g.fill();
+    g.beginPath(); g.ellipse(11, -59.5, 5.5, 1.8, 0, 0, 6.29); g.fill();
+  } else if (hat === 'beanie'){
+    g.beginPath(); g.arc(2, -58, 9.8, Math.PI*1.05, Math.PI*1.95); g.fill();
+    roundRect(-7.5, -62, 19, 3.4, 1.7); g.fill();
+  }
   // eye + smile (facing right; flip handles left)
   g.fillStyle = '#2e2119';
   g.beginPath(); g.arc(6.4, -55, 1.4, 0, 6.29); g.fill();
@@ -407,6 +526,176 @@ function drawDeer(x, y, s, flip, color){
   g.restore();
 }
 
+// ---------- encounters ----------
+var pairCd = {}, lastMeet = -1e9, meetCount = 0;
+function pairKey(a, b){ return a.id < b.id ? a.id + '|' + b.id : b.id + '|' + a.id; }
+var CHAT = ['how is the wandering?', 'been up to the overlook?', 'this valley, right?', 'found anything good?', 'the light today.'];
+var PARTS = ['see you around.', 'enjoy the walk.', 'later.'];
+function greetFor(t){
+  if (t > 0.76 && t < 0.86) return 'evening.';
+  if (t >= 0.86 || t < 0.22) return 'late one.';
+  if (t < 0.45) return 'morning.';
+  var gs = ['hey.', 'oh, hi.', 'good to see you.'];
+  return gs[Math.floor(Math.random()*gs.length)];
+}
+function startMeet(a, b, now, t){
+  pairCd[pairKey(a, b)] = now + 150000;
+  a.state = 'meet'; b.state = 'meet';
+  a.meetWith = b; b.meetWith = a;
+  a.meetT = 0; b.meetT = 0; a.beat = 0; b.beat = 0;
+  a.meetLead = true; b.meetLead = false;
+  a.vx = a.vz = 0; b.vx = b.vz = 0;
+  var mid = (a.x + b.x) / 2, mz = (a.z + b.z) / 2;
+  a.x = mid - 34; b.x = mid + 34; a.z = mz; b.z = mz;
+  a.face = 1; a.lastFace = 1; a.visFace = 1;
+  b.face = -1; b.lastFace = -1; b.visFace = -1;
+  a.tipT = 1.3; b.tipT = 1.3;          // hats off - literally
+  a.idleT = 0; b.idleT = 0;
+  sayFor(a, greetFor(t), 2400);
+  a.memory.push({ met: b.id, at: t }); b.memory.push({ met: a.id, at: t });
+}
+function endMeet(c, now){
+  c.state = 'pause';
+  c.pauseUntil = now + 500 + Math.random()*700;
+  c.meetWith = null; c.beat = 0; c.meetT = 0; c.place = null; c.resume = null; c.idleT = 0;
+}
+function resolveExchange(a, b, now, t){
+  // v10: context-card exchange + relevance filter + report feed
+}
+
+// ---------- per-character update ----------
+function updateChar(c, dt, now, t){
+  var isV = (c === man);
+  c.spd = Math.hypot(c.vx, c.vz);
+  if (c.state === 'meet'){
+    var o = c.meetWith;
+    if (!o || o.state !== 'meet'){ endMeet(c, now); return; }
+    c.meetT += dt;
+    if (c.meetT > 1.5 && c.beat < 1){
+      c.beat = 1;
+      if (!c.meetLead) sayFor(c, c.smalltalk[Math.floor(Math.random()*c.smalltalk.length)], 2500);
+    }
+    if (c.meetT > 3.2 && c.beat < 2){
+      c.beat = 2;
+      if (c.meetLead){
+        sayFor(c, CHAT[Math.floor(Math.random()*CHAT.length)], 2400);
+        resolveExchange(c, o, now, t);
+      }
+    }
+    if (c.meetT > 5.2 && c.beat < 3){
+      c.beat = 3;
+      c.waveT = 1.4;
+      if (!c.meetLead && Math.random() < 0.7) sayFor(c, PARTS[Math.floor(Math.random()*PARTS.length)], 1900);
+    }
+    if (c.meetT > 6.4) endMeet(c, now);
+  } else if (c.state === 'pause' || c.state === 'sit'){
+    if (now >= c.pauseUntil){
+      if (c.state === 'pause' && c.resume){
+        c.tx = c.resume.tx; c.tz = c.resume.tz; c.place = c.resume.place;
+        c.vias = c.resume.vias; c.speed = c.resume.speed; c.resume = null;
+        c.state = 'stroll';
+      } else newLeg(c);
+    }
+  } else {
+    if (c.vias.length){
+      var v0 = c.vias[0];
+      if (Math.hypot(v0.x - c.x, (v0.z - c.z) * 900) < 24) c.vias.shift();
+    }
+    var aimX = c.vias.length ? c.vias[0].x : c.tx;
+    var aimZ = c.vias.length ? c.vias[0].z : c.tz;
+    var dx = aimX - c.x, dz = aimZ - c.z;
+    var dist = Math.hypot(c.tx - c.x, (c.tz - c.z) * 900); // z compressed space
+    if (dist < 26 && !c.vias.length){
+      var pool = thoughtPool(t);
+      var p = c.place;
+      if (p && p.sit && Math.random() < (isV ? 0.5 : 0.4)){
+        c.state = 'sit';
+        c.pauseUntil = now + 7000 + Math.random()*7000;
+        if (p.id === 'dock'){ c.x = p.x; c.z = p.z; c.face = 1; c.lastFace = 1; c.visFace = 1; }
+        else { c.x = p.x + 52; c.z = p.z + 0.10; c.face = -1; c.lastFace = -1; c.visFace = -1; } // settle beside it, not on top of it
+        if (isV || Math.random() < 0.35) sayFor(c, p.id === 'fire' ? 'warm.' : p.sub + '.', 3200);
+      } else {
+        c.state = 'pause';
+        c.pauseUntil = now + 2400 + Math.random()*4200;
+        if (Math.random() < 0.5){
+          sayFor(c, p && Math.random() < 0.4 ? p.sub + '.' : (isV ? pool : c.smalltalk)[Math.floor(Math.random()*(isV ? pool : c.smalltalk).length)], 3000);
+        }
+      }
+      c.place = null;
+    } else {
+      var desired = Math.atan2(dx, dz*900);
+      // curve around the pond instead of wading through it
+      var pd = pondD2(c.x + c.vx*0.6, c.z + c.vz*0.6*4);
+      if (pd < 2.1 && !c.vias.length && !(c.place && c.place.id === 'dock')){
+        var ex = (c.x - POND.x)/POND.rx, ez = (c.z - POND.z)/POND.rz;
+        var tAng = Math.atan2(-ez, ex);              // tangent around the ellipse
+        var tAng2 = tAng + Math.PI;                  // other direction
+        var d1 = Math.abs(((desired - tAng + Math.PI*3) % (2*Math.PI)) - Math.PI);
+        var d2 = Math.abs(((desired - tAng2 + Math.PI*3) % (2*Math.PI)) - Math.PI);
+        var best = d1 < d2 ? tAng : tAng2;
+        var w = clamp((2.1 - pd) / 1.1, 0, 1);       // stronger the closer they get
+        var dd = ((best - desired + Math.PI*3) % (2*Math.PI)) - Math.PI;
+        desired += dd * w;
+      }
+      var dh = desired - c.heading;
+      while (dh > Math.PI) dh -= 2*Math.PI; while (dh < -Math.PI) dh += 2*Math.PI;
+      var maxTurn = 1.9 * dt;
+      c.heading += clamp(dh, -maxTurn, maxTurn);
+      var approach = clamp(dist / 140, 0.3, 1);  // ease into stops
+      var target = c.speed * approach * Math.max(0.4, Math.cos(dh));
+      var k = 1 - Math.exp(-dt / 0.35);
+      c.vx += (Math.sin(c.heading)*target - c.vx) * k;
+      c.vz += (Math.cos(c.heading)*target/900 - c.vz) * k;
+      c.x = clamp(c.x + c.vx * dt, 90, WORLD_W - 90);
+      c.z = clamp(c.z + c.vz * dt, 0.16, 0.9);
+      // never actually in the water
+      var pd2v = pondD2(c.x, c.z);
+      if (pd2v < 1.0){
+        var k2 = 1 / Math.sqrt(pd2v);
+        c.x = POND.x + (c.x - POND.x) * k2;
+        c.z = POND.z + (c.z - POND.z) * k2;
+      }
+      c.step += c.spd * dt * 0.075;
+      if (Math.abs(c.vx) > 4) c.face = c.vx > 0 ? 1 : -1;
+      // discoveries - alpha's character does the finding
+      if (isV){
+        PLACES.forEach(function(p2){
+          if (!p2.found && Math.abs(c.x - p2.x) < p2.r && Math.abs(c.z - p2.z) < 0.22){
+            p2.found = true; found++;
+            document.getElementById('found-n').textContent = found;
+            showToast(p2);
+            c.hop = 1;          // little jump of joy
+            c.tipT = 1.3;       // and a tip of the hat
+            if (p2.id !== 'dock'){   // on the dock he keeps walking to the end
+              c.resume = { tx: c.tx, tz: c.tz, place: c.place, vias: c.vias, speed: c.speed };
+              c.state = 'pause';
+              c.pauseUntil = now + 5000;
+              c.tx = c.x; c.tz = c.z;
+              c.vx = 0; c.vz = 0;
+            }
+          }
+        });
+      }
+    }
+  }
+  if (c.state !== 'stroll'){ c.vx *= Math.exp(-dt*4); c.vz *= Math.exp(-dt*4); }
+  if (c.hop > 0) c.hop = Math.max(0, c.hop - dt*2.4);
+  if (c.face !== c.lastFace){ c.turnT = 0.15; c.lastFace = c.face; c.visFace = c.face; }
+  var squash = 1;
+  if (c.turnT > 0){ c.turnT -= dt; squash = 1 - 0.16*Math.sin(Math.PI*Math.max(0, c.turnT)/0.15); }
+  c.squash = squash;
+  c.mode = c.state === 'sit' ? 'sit' : (c.spd > 6 ? 'walk' : 'idle');
+  if (c.mode === 'idle') c.step += dt * 2;
+  if (c.mode === 'idle' || c.mode === 'sit'){ c.idleT += dt; if (c.idleT > 3.5 && c.stretchT <= 0 && c.state !== 'meet') c.stretchT = 1.6; }
+  else c.idleT = 0;
+  if (c.stretchT > 0) c.stretchT = Math.max(0, c.stretchT - dt);
+  if (c.tipT > 0) c.tipT = Math.max(0, c.tipT - dt);
+  c.tipAmt = c.tipT > 0 ? Math.sin(Math.PI * clamp((1.3 - c.tipT) / 1.3, 0, 1)) : 0;
+  if (c.waveT > 0) c.waveT = Math.max(0, c.waveT - dt);
+  c.waveAmt = c.waveT > 0 ? Math.sin(Math.PI * clamp((1.4 - c.waveT) / 1.4, 0, 1)) : 0;
+  c.stretchAmt = c.stretchT > 0 ? Math.sin(Math.PI * clamp((1.6 - c.stretchT) / 1.6, 0, 1)) : 0;
+}
+
 // ---------- main loop ----------
 var time = 0, last = performance.now();
 
@@ -419,111 +708,24 @@ function frame(now){
   var dark = pal.darkRaw;
   var wind = Math.sin(time * 0.23) * 0.5 + 0.5;
 
-  // ---- man AI ----
-  var spd = Math.hypot(man.vx, man.vz);
-  if (man.state === 'pause' || man.state === 'sit'){
-    if (now >= man.pauseUntil){
-      if (man.state === 'pause' && man.resume){
-        man.tx = man.resume.tx; man.tz = man.resume.tz; man.place = man.resume.place;
-        man.vias = man.resume.vias; man.speed = man.resume.speed; man.resume = null;
-        man.state = 'stroll';
-      } else newLeg();
-    }
-  } else {
-    if (man.vias.length){
-      var v0 = man.vias[0];
-      if (Math.hypot(v0.x - man.x, (v0.z - man.z) * 900) < 24) man.vias.shift();
-    }
-    var aimX = man.vias.length ? man.vias[0].x : man.tx;
-    var aimZ = man.vias.length ? man.vias[0].z : man.tz;
-    var dx = aimX - man.x, dz = aimZ - man.z;
-    var dist = Math.hypot(man.tx - man.x, (man.tz - man.z) * 900); // z compressed space
-    if (dist < 26 && !man.vias.length){
-      var pool = thoughtPool(t);
-      var p = man.place;
-      if (p && p.sit && Math.random() < 0.5){
-        man.state = 'sit';
-        man.pauseUntil = now + 7000 + Math.random()*7000;
-        if (p.id === 'dock'){ man.x = p.x; man.z = p.z; man.face = 1; man.lastFace = 1; man.visFace = 1; }
-        else { man.x = p.x + 52; man.z = p.z + 0.10; man.face = -1; man.lastFace = -1; man.visFace = -1; } // settle beside it, not on top of it
-        say(p.id === 'fire' ? 'warm.' : p.sub + '.', 3200);
-      } else {
-        man.state = 'pause';
-        man.pauseUntil = now + 2400 + Math.random()*4200;
-        if (Math.random() < 0.5){
-          say(p && Math.random() < 0.4 ? p.sub + '.' : pool[Math.floor(Math.random()*pool.length)], 3000);
-        }
+  // ---- encounters - two characters near each other stop and talk ----
+  for (var pi5 = 0; pi5 < chars.length; pi5++){
+    for (var pj5 = pi5 + 1; pj5 < chars.length; pj5++){
+      var A = chars[pi5], B = chars[pj5];
+      if (A.state === 'meet' || B.state === 'meet') continue;
+      if (A.state === 'sit' && B.state === 'sit') continue;
+      if ((pairCd[pairKey(A, B)] || 0) > now) continue;
+      if (now - lastMeet < 9000) continue;
+      if (pondD2(A.x, A.z) < 1.35 || pondD2(B.x, B.z) < 1.35) continue;
+      if (Math.abs(A.x - B.x) < 90 && Math.abs(A.z - B.z) < 0.075){
+        lastMeet = now; meetCount++;
+        startMeet(A, B, now, t);
       }
-      man.place = null;
-    } else {
-      var desired = Math.atan2(dx, dz*900);
-      // curve around the pond instead of wading through it
-      var pd = pondD2(man.x + man.vx*0.6, man.z + man.vz*0.6*4);
-      if (pd < 2.1 && !man.vias.length && !(man.place && man.place.id === 'dock')){
-        var ex = (man.x - POND.x)/POND.rx, ez = (man.z - POND.z)/POND.rz;
-        var tAng = Math.atan2(-ez, ex);              // tangent around the ellipse
-        var tAng2 = tAng + Math.PI;                  // other direction
-        var d1 = Math.abs(((desired - tAng + Math.PI*3) % (2*Math.PI)) - Math.PI);
-        var d2 = Math.abs(((desired - tAng2 + Math.PI*3) % (2*Math.PI)) - Math.PI);
-        var best = d1 < d2 ? tAng : tAng2;
-        var w = clamp((2.1 - pd) / 1.1, 0, 1);       // stronger the closer he gets
-        var dd = ((best - desired + Math.PI*3) % (2*Math.PI)) - Math.PI;
-        desired += dd * w;
-      }
-      var dh = desired - man.heading;
-      while (dh > Math.PI) dh -= 2*Math.PI; while (dh < -Math.PI) dh += 2*Math.PI;
-      var maxTurn = 1.9 * dt;
-      man.heading += clamp(dh, -maxTurn, maxTurn);
-      var approach = clamp(dist / 140, 0.3, 1);  // ease into stops
-      var target = man.speed * approach * Math.max(0.4, Math.cos(dh));
-      var k = 1 - Math.exp(-dt / 0.35);
-      man.vx += (Math.sin(man.heading)*target - man.vx) * k;
-      man.vz += (Math.cos(man.heading)*target/900 - man.vz) * k;
-      man.x = clamp(man.x + man.vx * dt, 90, WORLD_W - 90);
-      man.z = clamp(man.z + man.vz * dt, 0.16, 0.9);
-      // never actually in the water
-      var pd2v = pondD2(man.x, man.z);
-      if (pd2v < 1.0){
-        var k2 = 1 / Math.sqrt(pd2v);
-        man.x = POND.x + (man.x - POND.x) * k2;
-        man.z = POND.z + (man.z - POND.z) * k2;
-      }
-      man.step += spd * dt * (man.speed > 120 ? 0.052 : 0.075);
-      if (Math.abs(man.vx) > 4) man.face = man.vx > 0 ? 1 : -1;
-      // discoveries
-      PLACES.forEach(function(p){
-        if (!p.found && Math.abs(man.x - p.x) < p.r && Math.abs(man.z - p.z) < 0.22){
-          p.found = true; found++;
-          document.getElementById('found-n').textContent = found;
-          showToast(p);
-          man.hop = 1;          // little jump of joy
-          man.tipT = 1.3;         // and a tip of the hat
-          if (p.id !== 'dock'){   // on the dock he keeps walking to the end
-            man.resume = { tx: man.tx, tz: man.tz, place: man.place, vias: man.vias, speed: man.speed };
-            man.state = 'pause';
-            man.pauseUntil = now + 5000;
-            man.tx = man.x; man.tz = man.z;
-            man.vx = 0; man.vz = 0;
-          }
-        }
-      });
     }
   }
-  if (man.state !== 'stroll'){ man.vx *= Math.exp(-dt*4); man.vz *= Math.exp(-dt*4); }
-  if (man.hop > 0) man.hop = Math.max(0, man.hop - dt*2.4);
-    if (man.face !== man.lastFace){ man.turnT = 0.15; man.lastFace = man.face; man.visFace = man.face; }
-  var squash = 1;
-  if (man.turnT > 0){ man.turnT -= dt; squash = 1 - 0.16*Math.sin(Math.PI*Math.max(0, man.turnT)/0.15); }
-  man.squash = squash;
-  var mode = man.state === 'sit' ? 'sit' : (spd > 6 ? 'walk' : 'idle');
-  if (mode === 'idle') man.step += dt * 2;
-  if (mode === 'idle' || mode === 'sit'){ man.idleT += dt; if (man.idleT > 3.5 && man.stretchT <= 0) man.stretchT = 1.6; }
-  else man.idleT = 0;
-  if (man.stretchT > 0) man.stretchT = Math.max(0, man.stretchT - dt);
-  if (man.tipT > 0) man.tipT = Math.max(0, man.tipT - dt);
-  man.tipAmt = man.tipT > 0 ? Math.sin(Math.PI * clamp((1.3 - man.tipT) / 1.3, 0, 1)) : 0;
-  var stretchAmt = man.stretchT > 0 ? Math.sin(Math.PI * clamp((1.6 - man.stretchT) / 1.6, 0, 1)) : 0;
-  man.stretchAmt = stretchAmt;
+
+  // ---- characters ----
+  chars.forEach(function(c){ updateChar(c, dt, now, t); });
 
   // camera
   var camTarget = clamp(man.x - W*0.5, 0, Math.max(0, WORLD_W - W));
@@ -610,7 +812,7 @@ function frame(now){
     }
   });
   // campfire particles
-  var fireLit = dark > 0.28 || (man.state==='sit' && Math.abs(man.x-3050)<130);
+  var fireLit = dark > 0.28 || chars.some(function(c){ return c.state==='sit' && Math.abs(c.x-3050)<130; });
   if (fireLit && Math.random() < 0.5) fireParts.push({ x:(Math.random()-0.5)*10, y:0, vy:-(18+Math.random()*22), life:0.6+Math.random()*0.7, s:2+Math.random()*2.5 });
   fireParts.forEach(function(p){ p.y += p.vy*dt; p.x += Math.sin(time*6+p.y*0.2)*8*dt; p.life -= dt; });
   fireParts = fireParts.filter(function(p){ return p.life > 0; });
@@ -978,12 +1180,14 @@ function frame(now){
       g.beginPath(); g.ellipse(x + w*s, y, 3*s, 4.4*s, 0.5, 0, 6.29); g.fill();
     }});
   });
-  // the man
-  drawList.push({ z: man.z, f: function(){
-    var x = man.x - camX, y = gy(man.z) - Math.sin(man.hop*Math.PI)*16*zs(man.z), s = zs(man.z) * 1.3;
-    drawMan(x, y, s, man.visFace, man.step, mode, man.speed > 120, man.squash, man.stretchAmt, man.tipAmt);
-    // fireflies cluster slightly around him at night? no - keep them independent
-  }});
+  // the characters
+  chars.forEach(function(c){
+    drawList.push({ z: c.z + 0.001, f: function(){
+      var x = c.x - camX; if (x < -60 || x > W + 60) return;
+      var y = gy(c.z) - Math.sin(c.hop*Math.PI)*16*zs(c.z), s = zs(c.z) * 1.3;
+      drawMan(x, y, s, c.visFace, c.step, c.mode, false, c.squash, c.stretchAmt, c.tipAmt, c.look, c.hat, c.waveAmt);
+    }});
+  });
   drawList.sort(function(a,b){ return a.z - b.z; });
   drawList.forEach(function(d){ d.f(); });
 
@@ -1051,10 +1255,13 @@ function frame(now){
     g.beginPath(); g.moveTo(owl.x, owl.y); g.quadraticCurveTo(owl.x + 12, owl.y - 4, owl.x + 20, owl.y - 2 - ow); g.stroke();
   }
 
-  // bubble position over his head
-  var mpx = man.x - camX, mpy = gy(man.z) - 78 * zs(man.z);
-  bubble.style.left = mpx + 'px';
-  bubble.style.top = mpy + 'px';
+  // bubbles follow their owners
+  chars.forEach(function(c){
+    var bb = bubs[c.id];
+    if (!bb) return;
+    bb.el.style.left = (c.x - camX) + 'px';
+    bb.el.style.top = (gy(c.z) - 96 * zs(c.z)) + 'px';
+  });
 
   window.__dock = function(){
     var p = PLACES.filter(function(k){ return k.id === 'dock'; })[0];
@@ -1063,7 +1270,17 @@ function frame(now){
   };
   window.__tip = function(){ man.hop = 1; man.tipT = 1.3; };
   window.__sit = function(f){ man.state='sit'; man.pauseUntil = performance.now()+12000; man.vx=0; man.vz=0; if (f){ man.face=f; man.lastFace=f; man.visFace=f; } };
-  window.__dbg = 'vx=' + man.vx.toFixed(1) + ' face=' + man.face + ' vf=' + man.visFace.toFixed(2) + ' h=' + man.heading.toFixed(2) + ' | ' + Math.round(man.x) + ',' + man.z.toFixed(2) + ' pd=' + pondD2(man.x, man.z).toFixed(2) + ' ' + man.state + ' spd=' + Math.round(spd) + ' found=' + found + ' t=' + t.toFixed(2) + ' dark=' + dark.toFixed(2);
+  window.__meet = function(id){
+    var o = null;
+    chars.forEach(function(c){ if (c.id === id) o = c; });
+    if (!o || o === man) o = chars[1];
+    pairCd = {}; lastMeet = -1e9;
+    if (Math.abs(o.x - man.x) > 400){ o.x = man.x + 260; o.z = clamp(man.z + 0.03, 0.2, 0.88); o.vx = o.vz = 0; }
+    o.state = 'stroll'; o.meetWith = null; o.vias = []; o.place = null;
+    o.tx = man.x + 40; o.tz = man.z; o.speed = 110;
+    man.state = 'pause'; man.pauseUntil = performance.now() + 30000; man.resume = null; man.vx = man.vz = 0;
+  };
+  window.__dbg = chars.map(function(c){ return c.id + ':' + c.state + '@' + Math.round(c.x) + ',' + c.z.toFixed(2); }).join(' ') + ' | found=' + found + ' meets=' + meetCount + ' t=' + t.toFixed(2) + ' pd=' + pondD2(man.x, man.z).toFixed(2);
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
