@@ -21,7 +21,7 @@
   :root{
     --cream:#faf5ec; --paper:#fffdf8; --ink:#3a2f28;
     --terra:#c96f4a; --terra-deep:#a85434; --sage:#7d8b6f; --gold:#d9a441;
-    --sat:env(safe-area-inset-top,0px); --sar:env(safe-area-inset-right,0px); --sal:env(safe-area-inset-left,0px);
+    --sat:env(safe-area-inset-top,0px); --sar:env(safe-area-inset-right,0px); --sal:env(safe-area-inset-left,0px); --sab:env(safe-area-inset-bottom,0px);
   }
   *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
   html,body{height:100%;overflow:hidden;font-family:'Inter',sans-serif;background:#f2efe0;
@@ -68,6 +68,33 @@
     background:var(--paper);transform:translateX(-50%) rotate(45deg);box-shadow:1px 1px 0 rgba(58,47,40,.05);}
   .bub.show{opacity:1;}
 
+  #notes{
+    position:absolute;bottom:calc(16px + var(--sab));left:calc(14px + var(--sal));z-index:11;
+    width:min(320px,74vw);pointer-events:auto;cursor:pointer;
+  }
+  #notes-head{font-family:'Fraunces',serif;font-style:italic;font-size:12.5px;color:#8a796d;
+    letter-spacing:.04em;margin:0 0 5px 4px;opacity:.95;text-shadow:0 1px 2px rgba(255,253,248,.6);}
+  #notes-n{display:inline-block;min-width:16px;text-align:center;background:var(--terra);color:var(--paper);
+    border-radius:8px;font-family:'Inter',sans-serif;font-style:normal;font-size:9.5px;font-weight:600;
+    padding:1px 4px;margin-left:6px;vertical-align:2px;}
+  #notes-n:empty{display:none;}
+  .note{
+    background:rgba(255,253,248,.93);backdrop-filter:blur(6px);border-radius:13px;
+    padding:9px 14px 8px;margin-top:6px;display:none;
+    box-shadow:0 2px 12px rgba(58,47,40,.13), 0 0 0 1px rgba(58,47,40,.05);
+    font-family:'Fraunces',serif;font-size:13.5px;line-height:1.35;color:#4a3d33;
+    animation:notein .6s ease both;
+  }
+  .note:first-child{display:block;}
+  #notes.open .note{display:block;}
+  .note span{display:block;font-family:'Inter',sans-serif;font-size:9.5px;color:#a3938a;
+    letter-spacing:.05em;margin-top:3px;}
+  .note .act{display:none;margin-top:6px;font-family:'Inter',sans-serif;font-size:10px;letter-spacing:.06em;
+    color:var(--terra-deep);background:rgba(201,111,74,.12);border:1px solid rgba(168,84,52,.35);
+    border-radius:8px;padding:4px 10px;}
+  #notes.open .act{display:inline-block;}
+  @keyframes notein{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:none;}}
+
   #vignette{position:absolute;inset:0;z-index:5;pointer-events:none;
     background:radial-gradient(ellipse at center, transparent 60%, rgba(120,85,50,.14) 100%);}
 </style>
@@ -78,6 +105,7 @@
 <div id="title-card"><h1>valley <em>sim</em></h1><p>they wander for their people</p></div>
 <div id="found"><b id="found-n">0</b> / <span id="found-total">0</span><br>places found</div>
 <div id="toast"></div>
+<div id="notes"><div id="notes-head">field notes<span id="notes-n"></span></div><div id="notes-list"></div></div>
 
 <script>
 (function(){
@@ -222,7 +250,7 @@ for (i=0;i<2;i++) ducks.push({ a: rng()*6.28, r: 55 + rng()*90, sp: (0.10 + rng(
 var CAST = [
   { id:'you', name:'alpha', hat:'straw',
     look:{ body:'#c96f4a', sleeve:'#b45f3d', skin:'#8a5a3b', hair:'#2e2119', band:'#d9a441' },
-    interests:['building','design','music','coffee','photography'],
+    interests:['building','design','music','coffee','photography','irl'],
     facts:[
       { text:'alpha is building a world where characters wander for their people', topics:['building','irl'] },
       { text:'alpha is at georgetown, thinking about the irl connection space', topics:['irl'] },
@@ -288,7 +316,7 @@ function mkChar(def){
   return {
     id: def.id, name: def.name, look: def.look, hat: def.hat,
     interests: def.interests,
-    facts: def.facts.map(function(f){ return { text: f.text, topics: f.topics, told: false }; }),
+    facts: def.facts.map(function(f){ return { text: f.text, topics: f.topics, shared: {} }; }),
     smalltalk: def.smalltalk, memory: [],
     x: 0, z: 0, vx: 0, vz: 0,
     face: 1, visFace: 1, lastFace: 1, turnT: 0, squash: 1, step: 0,
@@ -389,6 +417,30 @@ function sayFor(c, text, ms){
   b.timer = setTimeout(function(){ b.el.classList.remove('show'); }, ms);
 }
 function say(text, ms){ sayFor(man, text, ms); }
+
+// ---------- field notes: what your character brings back ----------
+var notesEl = document.getElementById('notes');
+var notesList = document.getElementById('notes-list');
+var noteCount = 0;
+notesEl.addEventListener('click', function(){ notesEl.classList.toggle('open'); });
+function dayWord(t){
+  if (t < 0.22 || t >= 0.9) return 'deep night';
+  if (t < 0.30) return 'dawn';
+  if (t < 0.45) return 'morning';
+  if (t < 0.68) return 'afternoon';
+  if (t < 0.76) return 'golden hour';
+  if (t < 0.86) return 'dusk';
+  return 'night';
+}
+function addNote(text, why, place, t){
+  noteCount++;
+  document.getElementById('notes-n').textContent = noteCount;
+  var el = document.createElement('div');
+  el.className = 'note';
+  el.innerHTML = text + '<span>at ' + place + ', ' + dayWord(t) + ' \u00b7 why: ' + why + '</span><button class="act" type="button">intro me</button>';
+  notesList.insertBefore(el, notesList.firstChild);
+  while (notesList.children.length > 8) notesList.removeChild(notesList.lastChild);
+}
 
 // ---------- projection ----------
 function gy(z){ return horizonY + z * meadowH * 0.92; }
@@ -559,8 +611,45 @@ function endMeet(c, now){
   c.pauseUntil = now + 500 + Math.random()*700;
   c.meetWith = null; c.beat = 0; c.meetT = 0; c.place = null; c.resume = null; c.idleT = 0;
 }
+// under the hood of every meeting: trade candidate facts, filter hard, report only what matters
+var WHY = {
+  building:"you're both building things", design:'you care how things are made',
+  music:"you're into music", coffee:"you'd actually go", photography:'your eye fits',
+  irl:'this is literally your thing'
+};
+function relevance(c, fact){
+  var hits = fact.topics.filter(function(tp){ return c.interests.indexOf(tp) >= 0; });
+  if (!hits.length) return Math.random() < 0.06 ? { keep: true, why: 'a hunch' } : { keep: false };
+  if (Math.random() < 0.55) return { keep: true, why: WHY[hits[0]] || 'seemed relevant' };
+  return { keep: false };
+}
+function nearestPlace(x){
+  var best = null, bd = 1e9;
+  PLACES.forEach(function(p){ var d = Math.abs(p.x - x); if (d < bd){ bd = d; best = p; } });
+  return bd < 300 ? best : null;
+}
+window.__exlog = [];
 function resolveExchange(a, b, now, t){
-  // v10: context-card exchange + relevance filter + report feed
+  [[a,b],[b,a]].forEach(function(pair){
+    var from = pair[0], to = pair[1];
+    var fresh = from.facts.filter(function(f){ return !f.shared[to.id]; });
+    if (!fresh.length) return;
+    var f = fresh[Math.floor(Math.random()*fresh.length)];
+    f.shared[to.id] = true;
+    var heard = to.memory.some(function(m){ return m.text === f.text; });
+    var r = heard ? { keep: false } : relevance(to, f);   // never report the same thing twice
+    window.__exlog.push(from.id + '->' + to.id + ' "' + f.text.slice(0, 34) + '" keep=' + r.keep + (r.why ? ' (' + r.why + ')' : ''));
+    if (window.__exlog.length > 24) window.__exlog.shift();
+    if (r.keep){
+      to.memory.push({ from: from.id, text: f.text });
+      if (to === man){
+        var pl = nearestPlace(to.x);
+        man.notePending = { text: f.text, why: r.why, place: pl ? pl.name : 'the meadow', t: t };
+      } else if (Math.random() < 0.4){
+        to.bubAfter = { text: 'noting this down.', at: now + 2600 };
+      }
+    }
+  });
 }
 
 // ---------- per-character update ----------
@@ -694,6 +783,12 @@ function updateChar(c, dt, now, t){
   if (c.waveT > 0) c.waveT = Math.max(0, c.waveT - dt);
   c.waveAmt = c.waveT > 0 ? Math.sin(Math.PI * clamp((1.4 - c.waveT) / 1.4, 0, 1)) : 0;
   c.stretchAmt = c.stretchT > 0 ? Math.sin(Math.PI * clamp((1.6 - c.stretchT) / 1.6, 0, 1)) : 0;
+  if (c.bubAfter && now >= c.bubAfter.at){ sayFor(c, c.bubAfter.text, 2600); c.bubAfter = null; }
+  if (c === man && c.notePending && c.state !== 'meet'){
+    addNote(c.notePending.text, c.notePending.why, c.notePending.place, c.notePending.t);
+    sayFor(man, 'alpha should hear this.', 2800);
+    c.notePending = null;
+  }
 }
 
 // ---------- main loop ----------
@@ -1280,7 +1375,7 @@ function frame(now){
     o.tx = man.x + 40; o.tz = man.z; o.speed = 110;
     man.state = 'pause'; man.pauseUntil = performance.now() + 30000; man.resume = null; man.vx = man.vz = 0;
   };
-  window.__dbg = chars.map(function(c){ return c.id + ':' + c.state + '@' + Math.round(c.x) + ',' + c.z.toFixed(2); }).join(' ') + ' | found=' + found + ' meets=' + meetCount + ' t=' + t.toFixed(2) + ' pd=' + pondD2(man.x, man.z).toFixed(2);
+  window.__dbg = chars.map(function(c){ return c.id + ':' + c.state + '@' + Math.round(c.x) + ',' + c.z.toFixed(2); }).join(' ') + ' | found=' + found + ' meets=' + meetCount + ' notes=' + noteCount + ' t=' + t.toFixed(2) + ' pd=' + pondD2(man.x, man.z).toFixed(2);
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
