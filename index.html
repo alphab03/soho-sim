@@ -38,6 +38,7 @@
     height:100%;overflow:hidden;font-family:'Inter',sans-serif;
     background:var(--cream);color:var(--ink);
     position:fixed;width:100%;touch-action:none;overscroll-behavior:none;
+    user-select:none;-webkit-user-select:none;
   }
 
   #map{position:absolute;inset:0;z-index:1;}
@@ -53,7 +54,7 @@
     background:var(--paper);border-radius:16px;
     padding:11px 17px 9px;
     box-shadow:0 2px 14px rgba(58,47,40,.14), 0 0 0 1px rgba(58,47,40,.05);
-    user-select:none;
+    pointer-events:none;
   }
   #title-card h1{
     font-family:'Fraunces',serif;font-weight:600;font-size:24px;
@@ -62,22 +63,6 @@
   #title-card h1 em{color:var(--terra);font-style:italic;}
   #title-card p{
     font-size:10px;color:#a3938a;margin-top:4px;letter-spacing:.05em;
-  }
-
-  /* ---- hint pill ---- */
-  #hint{
-    position:absolute;bottom:calc(22px + var(--sab));left:50%;transform:translateX(-50%);z-index:10;
-    background:rgba(255,253,248,.92);backdrop-filter:blur(6px);
-    border-radius:999px;padding:8px 18px;
-    font-size:12px;color:#7c6d63;letter-spacing:.02em;
-    box-shadow:0 2px 12px rgba(58,47,40,.12), 0 0 0 1px rgba(58,47,40,.05);
-    white-space:nowrap;user-select:none;
-    transition:opacity 1s;
-  }
-  #hint .k{
-    display:inline-block;background:var(--cream);border:1px solid #e4d9c8;border-bottom-width:2px;
-    border-radius:5px;padding:1px 6px;font-size:11px;font-weight:600;color:var(--ink);
-    margin:0 1px;
   }
 
   /* ---- discovery toast ---- */
@@ -91,6 +76,7 @@
     white-space:nowrap;
   }
   #toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+  @media (max-width:640px){ #toast{ top:calc(118px + var(--sat)); } }
   #toast span{display:block;font-family:'Inter',sans-serif;font-style:normal;font-size:10px;color:#a3938a;letter-spacing:.08em;text-transform:uppercase;margin-top:2px;text-align:center;}
 
   /* ---- found counter ---- */
@@ -98,28 +84,49 @@
     position:absolute;top:calc(14px + var(--sat));right:calc(14px + var(--sar));z-index:10;
     background:var(--paper);border-radius:14px;padding:9px 15px;
     box-shadow:0 2px 14px rgba(58,47,40,.14), 0 0 0 1px rgba(58,47,40,.05);
-    font-size:11px;color:#7c6d63;user-select:none;text-align:center;
+    font-size:11px;color:#7c6d63;text-align:center;pointer-events:none;
   }
   #found b{font-family:'Fraunces',serif;font-size:17px;color:var(--terra-deep);font-weight:600;}
+
+  /* ---- thought bubble ---- */
+  #bubble{
+    position:absolute;z-index:9;left:-200px;top:-200px;
+    transform:translate(-50%,-100%);
+    background:var(--paper);border-radius:12px;
+    padding:6px 13px;
+    font-family:'Fraunces',serif;font-style:italic;font-size:13px;color:#6b5a4e;
+    box-shadow:0 2px 10px rgba(58,47,40,.14), 0 0 0 1px rgba(58,47,40,.05);
+    opacity:0;pointer-events:none;white-space:nowrap;
+    transition:opacity .35s;
+  }
+  #bubble::after{
+    content:'';position:absolute;left:50%;bottom:-5px;
+    width:10px;height:10px;background:var(--paper);
+    transform:translateX(-50%) rotate(45deg);
+    box-shadow:1px 1px 0 rgba(58,47,40,.05);
+  }
+  #bubble.show{opacity:1;}
 
   /* ---- character ---- */
   .sim-wrap{pointer-events:none;}
   .sim{width:56px;height:66px;position:relative;}
   .sim svg{width:100%;height:100%;overflow:visible;}
   .sim .leg{transform-origin:24px 0;}
-  .sim.walking .leg-l{animation:swingL .34s ease-in-out infinite;}
-  .sim.walking .leg-r{animation:swingR .34s ease-in-out infinite;}
-  .sim.walking .arm-l{animation:swingR .34s ease-in-out infinite;transform-origin:0 4px;}
-  .sim.walking .arm-r{animation:swingL .34s ease-in-out infinite;transform-origin:0 4px;}
-  .sim.walking .bod{animation:bob .17s ease-in-out infinite;}
+  .sim.walking .leg-l{animation:swingL .38s ease-in-out infinite;}
+  .sim.walking .leg-r{animation:swingR .38s ease-in-out infinite;}
+  .sim.walking .arm-l{animation:swingR .38s ease-in-out infinite;transform-origin:0 4px;}
+  .sim.walking .arm-r{animation:swingL .38s ease-in-out infinite;transform-origin:0 4px;}
+  .sim.walking .bod{animation:bob .19s ease-in-out infinite;}
   .sim.running .leg-l{animation-duration:.22s;}
   .sim.running .leg-r{animation-duration:.22s;}
   .sim.running .arm-l{animation-duration:.22s;}
   .sim.running .arm-r{animation-duration:.22s;}
   .sim.running .bod{animation-duration:.11s;}
-  @keyframes swingL{0%,100%{transform:rotate(18deg);}50%{transform:rotate(-18deg);}}
-  @keyframes swingR{0%,100%{transform:rotate(-18deg);}50%{transform:rotate(18deg);}}
-  @keyframes bob{0%,100%{transform:translateY(0);}50%{transform:translateY(-2.5px);}}
+  .sim.idle .bod{animation:idleSway 2.8s ease-in-out infinite;}
+  @keyframes swingL{0%,100%{transform:rotate(16deg);}50%{transform:rotate(-16deg);}}
+  @keyframes swingR{0%,100%{transform:rotate(-16deg);}50%{transform:rotate(16deg);}}
+  @keyframes bob{0%,100%{transform:translateY(0);}50%{transform:translateY(-2px);}}
+  @keyframes idleSway{0%,100%{transform:translateY(0) rotate(0deg);}50%{transform:translateY(-1.2px) rotate(.6deg);}}
   .sim .facer{transition:transform .12s;}
   .sim.flip .facer{transform:scaleX(-1);}
 
@@ -134,35 +141,6 @@
   .spot-dot.found{background:var(--sage);box-shadow:0 0 0 3px rgba(125,139,111,.3), 0 1px 4px rgba(58,47,40,.25);animation:none;}
   @keyframes pulse{0%,100%{transform:scale(1);}50%{transform:scale(1.35);}}
 
-  /* ---- touch controls ---- */
-  #joy{
-    position:absolute;bottom:calc(64px + var(--sab));left:calc(22px + var(--sal));z-index:11;
-    width:118px;height:118px;border-radius:50%;
-    background:rgba(255,253,248,.55);backdrop-filter:blur(4px);
-    border:1.5px solid rgba(58,47,40,.15);
-    display:none;touch-action:none;
-  }
-  #joy-knob{
-    position:absolute;left:50%;top:50%;
-    width:48px;height:48px;border-radius:50%;
-    background:var(--paper);
-    box-shadow:0 2px 8px rgba(58,47,40,.25), 0 0 0 1px rgba(58,47,40,.08);
-    transform:translate(-50%,-50%);
-  }
-  #run-btn{
-    position:absolute;bottom:calc(84px + var(--sab));right:calc(22px + var(--sar));z-index:11;
-    width:76px;height:76px;border-radius:50%;
-    background:var(--paper);border:1.5px solid rgba(58,47,40,.12);
-    box-shadow:0 2px 10px rgba(58,47,40,.18);
-    font-family:'Fraunces',serif;font-style:italic;font-size:15px;color:var(--terra-deep);
-    display:none;align-items:center;justify-content:center;
-    touch-action:none;user-select:none;
-  }
-  #run-btn.on{background:var(--terra);color:var(--paper);border-color:var(--terra-deep);}
-  body.touch #joy{display:block;}
-  body.touch #run-btn{display:flex;}
-  body.touch #hint{bottom:auto;top:calc(78px + var(--sat));font-size:11px;opacity:.85;}
-
   /* vignette for soul */
   #vignette{
     position:absolute;inset:0;z-index:5;pointer-events:none;
@@ -176,29 +154,22 @@
 
 <div id="title-card">
   <h1>soho <em>sim</em></h1>
-  <p>houston to canal &middot; a little wander</p>
+  <p>houston to canal &middot; he wanders on his own</p>
 </div>
 
 <div id="found"><b id="found-n">0</b> / <span id="found-total">0</span><br>spots found</div>
 
-<div id="hint">
-  <span class="k">W</span><span class="k">A</span><span class="k">S</span><span class="k">D</span> or arrows to wander &nbsp;&middot;&nbsp; <span class="k">shift</span> to run
-</div>
-
 <div id="toast"></div>
-
-<div id="joy"><div id="joy-knob"></div></div>
-<div id="run-btn">run</div>
+<div id="bubble"></div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 (function(){
-  // register the service worker for home-screen install
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function(){ navigator.serviceWorker.register('sw.js').catch(function(){}); });
   }
 
-  // ---- SoHo bounds: Houston (N) to Canal (S), 6th Ave (W) to Lafayette (E)
+  // ---- SoHo: Houston (N) to Canal (S), 6th Ave (W) to Lafayette (E)
   var START = [40.7247, -74.0006]; // prince & mercer, outside fanelli's
   var BOUNDS = L.latLngBounds([40.7178, -74.0078], [40.7275, -73.9950]);
 
@@ -213,7 +184,7 @@
     attributionControl: true,
     inertia: false,
     zoomSnap: 0.5,
-    dragging: false,          // camera stays glued to the little guy
+    dragging: false,
     touchZoom: true,
     scrollWheelZoom: true,
     doubleClickZoom: false,
@@ -257,7 +228,7 @@
   var marker = L.marker(pos, {icon: simIcon, interactive: false, keyboard: false, zIndexOffset: 1000}).addTo(map);
   var simEl = null;
 
-  // ---- spots to discover ----
+  // ---- spots he discovers on his walks ----
   var SPOTS = [
     {name:"fanelli's cafe",      sub:"prince & mercer - pouring since 1847", ll:[40.72478,-74.00055]},
     {name:"greene st cast-irons",sub:"the prettiest facades in america",     ll:[40.72360,-74.00200]},
@@ -284,122 +255,171 @@
     toast.innerHTML = s.name + '<span>' + s.sub + '</span>';
     toast.classList.add('show');
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(function(){ toast.classList.remove('show'); }, 3200);
+    toastTimer = setTimeout(function(){ toast.classList.remove('show'); }, 3400);
   }
 
-  // ---- input ----
-  var keys = {};
-  window.addEventListener('keydown', function(e){
-    if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].indexOf(e.key) >= 0) e.preventDefault();
-    keys[e.key.toLowerCase()] = true;
-  });
-  window.addEventListener('keyup', function(e){ keys[e.key.toLowerCase()] = false; });
-
-  var isTouch = ('ontouchstart' in window) || navigator.maxTouchPoints > 0 || /[?&]touch/.test(location.search);
-  if (isTouch) document.body.classList.add('touch');
-
-  var joyVec = {x:0, y:0};
-  var joyEl = document.getElementById('joy');
-  var knob = document.getElementById('joy-knob');
-  var joyId = null, joyRun = false, touchRun = false;
-
-  function joyCenter(){
-    var r = joyEl.getBoundingClientRect();
-    return {x: r.left + r.width/2, y: r.top + r.height/2, rad: r.width/2};
+  var bubble = document.getElementById('bubble');
+  var bubbleTimer = null;
+  function say(text, ms){
+    bubble.textContent = text;
+    bubble.classList.add('show');
+    clearTimeout(bubbleTimer);
+    bubbleTimer = setTimeout(function(){ bubble.classList.remove('show'); }, ms);
   }
-  joyEl.addEventListener('pointerdown', function(e){
-    joyId = e.pointerId; joyEl.setPointerCapture(joyId); moveJoy(e);
-  });
-  joyEl.addEventListener('pointermove', function(e){ if (e.pointerId === joyId) moveJoy(e); });
-  function endJoy(e){
-    if (e.pointerId !== joyId) return;
-    joyId = null; joyVec = {x:0,y:0}; joyRun = false;
-    knob.style.transform = 'translate(-50%,-50%)';
-  }
-  joyEl.addEventListener('pointerup', endJoy);
-  joyEl.addEventListener('pointercancel', endJoy);
-  function moveJoy(e){
-    var c = joyCenter();
-    var dx = e.clientX - c.x, dy = e.clientY - c.y;
-    var d = Math.hypot(dx, dy) || 1;
-    var clamped = Math.min(d, c.rad);
-    var nx = dx/d, ny = dy/d;
-    knob.style.transform = 'translate(calc(-50% + ' + (nx*clamped) + 'px), calc(-50% + ' + (ny*clamped) + 'px))';
-    var m = clamped / c.rad;
-    joyVec = {x: nx*m, y: ny*m};
-    joyRun = m > 0.92;
-  }
+  var THOUGHTS = [
+    'nice block.',
+    'cast iron, pretty.',
+    'coffee soon.',
+    'quiet here.',
+    'this corner again.',
+    'love these streets.',
+    'hm. good light.',
+    'early for the crowd.'
+  ];
 
-  var runBtn = document.getElementById('run-btn');
-  runBtn.addEventListener('pointerdown', function(e){
-    e.preventDefault();
-    touchRun = !touchRun;
-    runBtn.classList.toggle('on', touchRun);
-  });
-
-  // ---- movement ----
-  var WALK = 3.4, RUN = 8.2; // meters per second
+  // ---- his free will ----
+  var STROLL_MIN = 1.4, STROLL_MAX = 2.2, RUN = 5.4; // m/s
   var M_PER_DEG_LAT = 111320;
-  var last = performance.now();
-  var hintFaded = false;
-
   function mPerDegLng(lat){ return 111320 * Math.cos(lat * Math.PI/180); }
+
+  var vel = {x:0, y:0};
+  var heading = Math.random() * Math.PI * 2; // 0 = north, clockwise
+  var state = 'stroll';       // stroll | pause
+  var target = null;
+  var legSpeed = 1.6;
+  var pauseUntil = 0;
+  var camCenter = L.latLng(START[0], START[1]);
+
+  function pickTarget(minD, maxD, allowSpot){
+    // on stroll legs he sometimes heads for a spot he hasn't found yet
+    var un = SPOTS.filter(function(s){ return !s.found; });
+    if (allowSpot && un.length && Math.random() < 0.4){
+      var s = un[Math.floor(Math.random() * un.length)];
+      return L.latLng(s.ll[0], s.ll[1]);
+    }
+    for (var i = 0; i < 14; i++){
+      var t = L.latLng(
+        BOUNDS.getSouth() + Math.random() * (BOUNDS.getNorth() - BOUNDS.getSouth()),
+        BOUNDS.getWest()  + Math.random() * (BOUNDS.getEast()  - BOUNDS.getWest())
+      );
+      var d = map.distance(pos, t);
+      if (d > minD && d < maxD) return t;
+    }
+    return L.latLng(40.7236, -74.0020); // greene st, always a good idea
+  }
+
+  function newLeg(){
+    state = 'stroll';
+    if (Math.random() < 0.12){
+      legSpeed = RUN;                    // occasionally he's in a hurry -
+      target = pickTarget(70, 150, false); // but only for a block or two
+    } else {
+      legSpeed = STROLL_MIN + Math.random() * (STROLL_MAX - STROLL_MIN);
+      target = pickTarget(90, 220, true);
+    }
+  }
+
+  function wrapAngle(a){
+    while (a > Math.PI) a -= 2 * Math.PI;
+    while (a < -Math.PI) a += 2 * Math.PI;
+    return a;
+  }
+
+  var last = performance.now();
 
   function frame(now){
     var dt = Math.min((now - last)/1000, 0.05);
     last = now;
 
-    var dx = 0, dy = 0;
-    if (keys['w'] || keys['arrowup']) dy += 1;
-    if (keys['s'] || keys['arrowdown']) dy -= 1;
-    if (keys['a'] || keys['arrowleft']) dx -= 1;
-    if (keys['d'] || keys['arrowright']) dx += 1;
-    var running = !!(keys['shift']);
-    if (joyVec.x || joyVec.y){ dx += joyVec.x; dy -= joyVec.y; if (joyRun) running = true; }
-    if (touchRun && (dx || dy)) running = true;
+    var targetSpeed = 0;
 
-    var mag = Math.hypot(dx, dy);
-    if (mag > 1){ dx /= mag; dy /= mag; mag = 1; }
-    var moving = mag > 0.02;
+    if (state === 'pause'){
+      if (now >= pauseUntil) newLeg();
+    } else {
+      if (!target) newLeg();
+      var dx = (target.lng - pos.lng) * mPerDegLng(pos.lat);
+      var dy = (target.lat - pos.lat) * M_PER_DEG_LAT;
+      var dist = Math.hypot(dx, dy);
+      if (dist < 9){
+        state = 'pause';
+        var pauseMs = 2200 + Math.random() * 4200;
+        pauseUntil = now + pauseMs;
+        target = null;
+        if (Math.random() < 0.45){
+          say(THOUGHTS[Math.floor(Math.random() * THOUGHTS.length)], Math.min(pauseMs - 500, 3200));
+        }
+      } else {
+        var desired = Math.atan2(dx, dy);
+        var dh = wrapAngle(desired - heading);
+        var maxTurn = 2.3 * dt;
+        heading += Math.max(-maxTurn, Math.min(maxTurn, dh));
+        heading += Math.sin(now * 0.0011) * 0.14 * dt; // gentle meander
+        targetSpeed = legSpeed * Math.max(0.35, Math.cos(dh)); // slow into turns
+      }
+    }
 
-    if (moving){
-      if (!hintFaded){ document.getElementById('hint').style.opacity = '0.45'; hintFaded = true; }
-      var speed = running ? RUN : WALK;
-      var dLat = (dy * speed * mag * dt) / M_PER_DEG_LAT;
-      var dLng = (dx * speed * mag * dt) / mPerDegLng(pos.lat);
-      var nLat = pos.lat + dLat, nLng = pos.lng + dLng;
+    // momentum: ease toward intended velocity
+    var tx = Math.sin(heading) * targetSpeed;
+    var ty = Math.cos(heading) * targetSpeed;
+    var k = 1 - Math.exp(-dt / 0.28);
+    vel.x += (tx - vel.x) * k;
+    vel.y += (ty - vel.y) * k;
+    var spd = Math.hypot(vel.x, vel.y);
+
+    if (spd > 0.08){
+      var nLat = pos.lat + (vel.y * dt) / M_PER_DEG_LAT;
+      var nLng = pos.lng + (vel.x * dt) / mPerDegLng(pos.lat);
       nLat = Math.max(BOUNDS.getSouth(), Math.min(BOUNDS.getNorth(), nLat));
       nLng = Math.max(BOUNDS.getWest(), Math.min(BOUNDS.getEast(), nLng));
       pos = L.latLng(nLat, nLng);
       marker.setLatLng(pos);
-      map.panTo(pos, {animate: false});
 
       if (!simEl) simEl = document.getElementById('sim');
       if (simEl){
-        simEl.classList.add('walking');
-        simEl.classList.toggle('running', running);
-        if (dx < -0.05) simEl.classList.add('flip');
-        else if (dx > 0.05) simEl.classList.remove('flip');
+        var walking = spd > 0.25;
+        simEl.classList.toggle('walking', walking && spd <= 3.4);
+        simEl.classList.toggle('running', spd > 3.4);
+        simEl.classList.toggle('idle', !walking);
+        if (vel.x < -0.15) simEl.classList.add('flip');
+        else if (vel.x > 0.15) simEl.classList.remove('flip');
       }
 
+      // discoveries
       SPOTS.forEach(function(s){
-        if (!s.found && map.distance(pos, s.ll) < 45){
+        if (!s.found && map.distance(pos, s.ll) < 40){
           s.found = true; found++;
           var el = s.marker.getElement();
           if (el) el.querySelector('.spot-dot').classList.add('found');
           document.getElementById('found-n').textContent = found;
           showToast(s);
+          state = 'pause';
+          pauseUntil = now + 4600;
+          target = null;
         }
       });
     } else if (simEl){
       simEl.classList.remove('walking','running');
+      simEl.classList.add('idle');
     }
+
+    // buttery camera: drifts after him, never snaps
+    var ck = 1 - Math.exp(-dt * 3.2);
+    camCenter = L.latLng(
+      camCenter.lat + (pos.lat - camCenter.lat) * ck,
+      camCenter.lng + (pos.lng - camCenter.lng) * ck
+    );
+    map.panTo(camCenter, {animate: false});
+
+    // keep the bubble floating over his head
+    var pt = map.latLngToContainerPoint(pos);
+    bubble.style.left = pt.x + 'px';
+    bubble.style.top = (pt.y - 74) + 'px';
 
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
 
-  window.addEventListener('resize', function(){ map.panTo(pos, {animate:false}); });
+  window.addEventListener('resize', function(){ map.panTo(camCenter, {animate:false}); });
 })();
 </script>
 </body>
