@@ -209,7 +209,806 @@ function creekD(x, z){
   }
   return Math.sqrt(best);
 }
-document.getElementById('found-total').textContent = PLACES.length;
+// ---------- his house - the whole world now ----------
+// alpha's character lives here. tap / keys walk him; left alone he lives on his own:
+// he brings things home, arranges them, tends his plants, sleeps when it's late.
+var HOUSE_MODE = !Q.has('valley');
+var ROOM_W = 2100;
+var HFIX = { doorX: 160, winX0: 880, winX1: 1180, fireX: 560, bedX: 1920 };
+var HITEMS_DEF = [
+  { id:'rug',    name:'a braided rug',      sub:'soft underfoot',          kind:'rug' },
+  { id:'plant1', name:'a fiddle-leaf fig',  sub:'needs the light',         kind:'plant',  act:'tend' },
+  { id:'shelf',  name:'a bookshelf',        sub:'borrowed stories',        kind:'shelf',  act:'browse' },
+  { id:'chair',  name:'the armchair',       sub:'his spot',                kind:'chair',  act:'read' },
+  { id:'desk',   name:'a writing desk',     sub:'ink and paper',           kind:'desk',   act:'write' },
+  { id:'lamp',   name:'a floor lamp',       sub:'a pool of light',         kind:'lamp' },
+  { id:'plant2', name:'a hanging fern',     sub:'by the window',           kind:'hplant', act:'tend' },
+  { id:'table',  name:'a side table',       sub:'tea things',              kind:'table' },
+  { id:'art',    name:'a framed print',     sub:'the valley, remembered',  kind:'art' },
+  { id:'plant3', name:'a little succulent', sub:'on the sill',             kind:'splant' },
+  { id:'kettle', name:'a copper kettle',    sub:'tea, properly',           kind:'kettle', act:'tea' },
+  { id:'cat',    name:'a cat',              sub:'it chose him',            kind:'cat',    act:'pet' }
+];
+function hDef(id){ for (var i = 0; i < HITEMS_DEF.length; i++) if (HITEMS_DEF[i].id === id) return HITEMS_DEF[i]; return null; }
+var HANCHORS = {
+  rug:    [[680,0.745],[1400,0.745]],
+  plant1: [[1260,0.60],[310,0.60],[1560,0.60]],
+  shelf:  [[1650,0.585],[350,0.585]],
+  chair:  [[745,0.72],[1210,0.72]],
+  desk:   [[1370,0.605],[250,0.605]],
+  lamp:   [[1490,0.60],[650,0.62]],
+  plant2: [[905],[1155]],
+  table:  [[810,0.68],[1450,0.68]],
+  art:    [[1430],[720]],
+  plant3: [[955],[1110]],
+  kettle: [[560,0.60]],
+  cat:    [[690,0.755],[1900,0.73],[1040,0.63],[745,0.72]]
+};
+var HACT_LINES = {
+  gaze:   ['the light changes.','weather coming.','quiet out there.','the valley, framed.'],
+  warm:   ['warm.','one more log.','the fire knows.'],
+  sleep:  [],
+  tend:   ['drink up.','new leaf.','growing.'],
+  browse: ['this one again.','a good spine.','borrowed stories.'],
+  read:   ['one more page.','his spot.','mm.'],
+  write:  ['dear...','ink first.','a letter, maybe.'],
+  tea:    ['steep.','properly warm.','tea time.'],
+  pet:    ['there it is.','purr.','who chose who.']
+};
+var hstate = {
+  items: [],                 // placed: { id, x, z }
+  next: -1,                  // worldAge of next arrival (-1 = unset until load)
+  rearr: -1,
+  carry: null,               // def being carried in
+  carryBox: false,           // carrying a plain box (pre-placement)
+  moving: null,              // item being rearranged
+  fireP: [],
+  rain: 0, raining: false, rainT: 45,
+  birds: null, birdsT: 18,
+  catT: 40, catMove: null,
+  dust: [],
+  fetchT: 0, idleT: 0
+};
+for (var hd = 0; hd < 14; hd++) hstate.dust.push({ x: 880 + Math.random()*300, y: 0, vy: 4 + Math.random()*6, ph: Math.random()*6.28 });
+function hHas(id){ return hstate.items.some(function(it){ return it.id === id; }); }
+function hItem(id){ for (var i = 0; i < hstate.items.length; i++) if (hstate.items[i].id === id) return hstate.items[i]; return null; }
+function hFreeAnchor(id){
+  var opts = HANCHORS[id] || [];
+  for (var i = 0; i < opts.length; i++){
+    var a = opts[i], clash = false;
+    hstate.items.forEach(function(it){
+      var d2 = hDef(it.id);
+      if (d2 && d2.kind !== 'rug' && Math.abs(it.x - a[0]) < 130 && a[1] !== undefined && Math.abs(it.z - a[1]) < 0.09) clash = true;
+    });
+    if (!clash) return a;
+  }
+  return opts[0];
+}
+function hSpots(){
+  var out = [
+    { id:'window', name:'the window', sub:'the valley, framed', x:1030, z:0.655, act:'gaze' },
+    { id:'fire',   name:'the hearth', sub:'warm hands',         x:640,  z:0.70,  act:'warm' },
+    { id:'bed',    name:'the bed',    sub:'where the day ends', x:1900, z:0.72,  act:'sleep' }
+  ];
+  hstate.items.forEach(function(it){
+    var d = hDef(it.id);
+    if (!d || !d.act) return;
+    var sx = it.x, sz = it.z;
+    if (d.kind === 'chair'){ sx = it.x; sz = it.z; }
+    if (d.kind === 'cat'){ var c = hItem('cat'); sx = c.x; sz = c.z + 0.02; }
+    out.push({ id: d.id, name: d.name, sub: d.sub, x: sx, z: sz, act: d.act });
+  });
+  return out;
+}
+function hCount(){ document.getElementById('found-n').textContent = hstate.items.length; }
+function hPlaceNext(silent, t){
+  var remaining = HITEMS_DEF.filter(function(d){ return !hHas(d.id); });
+  if (!remaining.length) return null;
+  var d = remaining[0];
+  var a = hFreeAnchor(d.id);
+  var it = { id: d.id, x: a[0], z: a[1] !== undefined ? a[1] : 0.6 };
+  hstate.items.push(it);
+  hCount();
+  if (!silent){
+    showToast(d);
+    addNote('brought home ' + d.name, 'making it his', 'home', t);
+    sayFor(man, d.id === 'cat' ? 'well. hello.' : 'there.', 2200);
+    man.hop = 1;
+  }
+  return it;
+}
+function hPickActivity(t, dark){
+  var spots = hSpots();
+  if (dark > 0.62) return spots.filter(function(s){ return s.act === 'sleep'; })[0];
+  var weighted = [];
+  spots.forEach(function(s){
+    var w = 1;
+    if (s.act === 'sleep') w = dark > 0.45 ? 2 : 0.15;
+    if (s.act === 'warm' || s.act === 'tea') w = dark > 0.3 ? 2 : 1;
+    if (s.act === 'read') w = 1.4;
+    if (s.act === 'gaze') w = 1.2;
+    if (s.act === 'pet') w = 0.7;
+    for (var i = 0; i < Math.round(w * 2); i++) weighted.push(s);
+  });
+  return weighted[Math.floor(Math.random()*weighted.length)];
+}
+function hWalkTo(x, z, act){
+  man.state = 'h-walk'; man.tx = clamp(x, 100, ROOM_W - 100); man.tz = clamp(z, 0.58, 0.76);
+  man.hAct = act || null; man.vias = []; man.speed = 82;
+}
+// ---- input: alpha drives, the house respects it ----
+var manualUntil = 0;
+var hKeys = {};
+function hTap(sx, sy, now){
+  if (man.state === 'h-fetch' || man.state === 'h-place') return;   // let him finish carrying
+  manualUntil = now + 20000;
+  var wx = clamp((sx - W/2) / zoom + W/2 + camX, 100, ROOM_W - 100);
+  var gyT = (sy - zcy) / zoom + zcy;
+  var wz = clamp((gyT - horizonY) / (meadowH * 0.92), 0.58, 0.76);
+  if (man.state === 'h-sleep'){ hWake(now); }
+  var spots = hSpots(), hit = null;
+  spots.forEach(function(s){ if (Math.abs(s.x - wx) < 120 && Math.abs(s.z - wz) < 0.13) hit = s; });
+  if (hit) hWalkTo(hit.x, hit.z, hit);
+  else hWalkTo(wx, wz, null);
+}
+function hWake(now){
+  if (man.state !== 'h-sleep') return;
+  man.state = 'h-idle'; hstate.idleT = 0; man.stretchT = 1.6;
+  sayFor(man, 'mm.', 1200);
+}
+// ---- per-frame update ----
+function houseUpdate(dt, now, t, dark){
+  // arrivals + rearranging run on the world's own clock
+  if (hstate.next > 0 && worldAge >= hstate.next && man.state !== 'h-fetch' && man.state !== 'h-place' && man.state !== 'h-sleep' && hstate.items.length < HITEMS_DEF.length){
+    hstate.next = -hstate.next;   // hold until the fetch below finishes
+    man.state = 'h-fetch'; hstate.fetchT = 0; hstate.carry = HITEMS_DEF.filter(function(d){ return !hHas(d.id); })[0];
+    hWalkTo(0, 0, null); man.state = 'h-fetch'; man.tx = 210; man.tz = 0.70; man.speed = 88;
+  }
+  if (hstate.rearr > 0 && worldAge >= hstate.rearr && hstate.items.length >= 4 && man.state === 'h-idle' && hstate.idleT > 2){
+    var movable = hstate.items.filter(function(it){ var d = hDef(it.id); return d && ['chair','table','lamp','plant1','desk'].indexOf(d.kind) >= 0; });
+    if (movable.length){
+      hstate.moving = movable[Math.floor(Math.random()*movable.length)];
+      man.state = 'h-shift'; man.tx = hstate.moving.x; man.tz = hstate.moving.z + 0.05; man.speed = 82; hstate.fetchT = 0;
+    }
+    hstate.rearr = worldAge + 260 + Math.random()*300;
+  }
+  // state machine
+  man.spd = Math.hypot(man.vx, man.vz);
+  if (man.state === 'h-walk' || man.state === 'h-fetch' || man.state === 'h-place' || man.state === 'h-shift'){
+    var dx = man.tx - man.x, dz = man.tz - man.z;
+    var dist = Math.hypot(dx, dz * 900);
+    if (dist < 22){
+      man.vx = man.vz = 0;
+      if (man.state === 'h-walk'){
+        if (man.hAct){
+          man.state = 'h-act'; hstate.act = man.hAct; man.hAct = null;
+          hstate.actT = hstate.act.act === 'sleep' ? 1e9 : 9 + Math.random()*8;
+          if (hstate.act.act === 'sleep'){ man.state = 'h-sleep'; man.sleepT = 0; }
+          else if (hstate.act.act === 'read' || hstate.act.act === 'write') man.face = hstate.act.id === 'desk' ? -1 : -1;
+          else man.face = 1;
+          man.lastFace = man.face;
+        } else { man.state = 'h-idle'; hstate.idleT = 0; }
+      } else if (man.state === 'h-fetch'){
+        hstate.fetchT += dt;
+        if (hstate.fetchT > 1.4){   // the door opens, he's back with something
+          hstate.carryBox = true;
+          var a = hFreeAnchor(hstate.carry.id);
+          man.state = 'h-place'; man.tx = clamp(a[0] + 26, 100, ROOM_W - 100); man.tz = clamp((a[1] !== undefined ? a[1] : 0.62) + 0.06, 0.58, 0.76); man.speed = 74;
+        }
+      } else if (man.state === 'h-place'){
+        hstate.fetchT += dt;
+        if (hstate.fetchT > 2.6){
+          hPlaceNext(false, t);
+          hstate.carry = null; hstate.carryBox = false;
+          hstate.next = worldAge + 150 + Math.random()*160;
+          man.state = 'h-idle'; hstate.idleT = 0;
+        }
+      } else if (man.state === 'h-shift'){
+        if (!hstate.moving.carried){
+          hstate.moving.carried = true; hstate.fetchT = 0;
+          var d = hDef(hstate.moving.id);
+          var opts = HANCHORS[hstate.moving.id] || [];
+          var alt = opts.filter(function(a){ return Math.abs(a[0] - hstate.moving.x) > 60; })[0] || opts[0];
+          hstate.moving.newA = alt;
+          man.tx = clamp(alt[0] + 26, 100, ROOM_W - 100); man.tz = clamp((alt[1] !== undefined ? alt[1] : 0.62) + 0.06, 0.58, 0.76);
+        } else {
+          hstate.moving.x = hstate.moving.newA[0];
+          if (hstate.moving.newA[1] !== undefined) hstate.moving.z = hstate.moving.newA[1];
+          delete hstate.moving.carried; delete hstate.moving.newA;
+          sayFor(man, 'better.', 1600);
+          if (Math.random() < 0.5) addNote('moved ' + hDef(hstate.moving.id).name, 'making it his', null, t);
+          hstate.moving = null;
+          man.state = 'h-idle'; hstate.idleT = 0;
+        }
+      }
+    } else {
+      var desired = Math.atan2(dx, dz * 900);
+      var dh = desired - man.heading;
+      while (dh > Math.PI) dh -= 2*Math.PI; while (dh < -Math.PI) dh += 2*Math.PI;
+      man.heading += clamp(dh, -2.6*dt, 2.6*dt);
+      var approach = clamp(dist / 120, 0.35, 1);
+      var target = man.speed * approach * Math.max(0.45, Math.cos(dh));
+      var k = 1 - Math.exp(-dt / 0.3);
+      man.vx += (Math.sin(man.heading)*target - man.vx) * k;
+      man.vz += (Math.cos(man.heading)*target/900 - man.vz) * k;
+      man.x = clamp(man.x + man.vx * dt, 100, ROOM_W - 100);
+      man.z = clamp(man.z + man.vz * dt, 0.58, 0.76);
+      man.step += man.spd * dt * 0.075;
+      if (Math.abs(man.vx) > 4) man.face = man.vx > 0 ? 1 : -1;
+      if (man.state === 'h-fetch' || man.state === 'h-place' || man.state === 'h-shift') hstate.fetchT += dt * 0.001; // keep fetchT for pauses only
+    }
+  } else if (man.state === 'h-act'){
+    hstate.actT -= dt;
+    man.step += dt * 2;
+    if (Math.random() < dt * 0.22){
+      var lines = HACT_LINES[hstate.act.act] || [];
+      if (lines.length) sayFor(man, lines[Math.floor(Math.random()*lines.length)], 2400);
+    }
+    if (hstate.actT <= 0){ man.state = 'h-idle'; hstate.idleT = 0; hstate.act = null; }
+  } else if (man.state === 'h-sleep'){
+    man.sleepT = (man.sleepT || 0) + dt;
+    if (t > 0.27 && t < 0.62 && man.sleepT > 25 && manualUntil < now){ hWake(now); }
+  } else {   // h-idle
+    man.vx *= 0.8; man.vz *= 0.8;
+    man.step += dt * 2;
+    hstate.idleT += dt;
+    if (now > manualUntil && hstate.idleT > 3.5 && man.state === 'h-idle'){
+      if (hstate.next < 0) hstate.next = worldAge + 40;   // first visit: something arrives soon
+      var s = hPickActivity(t, dark);
+      if (s){ hWalkTo(s.x + (s.act === 'sleep' ? 0 : (Math.random()-0.5)*20), s.z, s); }
+    }
+  }
+  // keyboard driving
+  if (hKeys.left || hKeys.right || hKeys.up || hKeys.down){
+    manualUntil = now + 20000;
+    if (man.state === 'h-sleep') hWake(now);
+    if (man.state === 'h-idle' || man.state === 'h-walk' || man.state === 'h-act'){
+      man.state = 'h-walk'; man.hAct = null; man.speed = 88;
+      man.tx = clamp(man.x + (hKeys.right ? 320 : 0) - (hKeys.left ? 320 : 0), 100, ROOM_W - 100);
+      man.tz = clamp(man.z + (hKeys.down ? 0.09 : 0) - (hKeys.up ? 0.09 : 0), 0.58, 0.76);
+    }
+  }
+  // shared fidget timers (stretch / tip / wave envelopes)
+  if (man.mode === 'idle' && man.idleT !== undefined){}
+  man.idleT += dt; if (man.idleT > 4.5 && man.stretchT <= 0 && man.state === 'h-idle') man.stretchT = 1.6;
+  if (man.spd > 6) man.idleT = 0;
+  if (man.stretchT > 0) man.stretchT = Math.max(0, man.stretchT - dt);
+  man.stretchAmt = man.stretchT > 0 ? Math.sin(Math.PI * clamp((1.6 - man.stretchT) / 1.6, 0, 1)) : 0;
+  if (man.tipT > 0) man.tipT = Math.max(0, man.tipT - dt);
+  man.tipAmt = man.tipT > 0 ? Math.sin(Math.PI * clamp((1.3 - man.tipT) / 1.3, 0, 1)) : 0;
+  if (man.hop > 0) man.hop = Math.max(0, man.hop - dt*2.4);
+  man.visFace += (man.face - man.visFace) * Math.min(1, dt * 10);
+  man.mode = man.state === 'h-sleep' ? 'sleep' : (man.spd > 6 ? 'walk' : (man.state === 'h-act' && (hstate.act && (hstate.act.act === 'read' || hstate.act.act === 'write')) ? 'sit' : (man.state === 'h-act' && hstate.act && hstate.act.act === 'tend' ? 'work' : 'idle')));
+  // weather beyond the glass
+  hstate.rainT -= dt;
+  if (hstate.rainT <= 0){ hstate.raining = !hstate.raining; hstate.rainT = hstate.raining ? 40 + Math.random()*70 : 80 + Math.random()*160; }
+  hstate.rain += ((hstate.raining ? 1 : 0) - hstate.rain) * Math.min(1, dt * 0.5);
+  // birds past the window
+  hstate.birdsT -= dt;
+  if (hstate.birdsT <= 0 && dark < 0.5){
+    hstate.birdsT = 20 + Math.random()*30;
+    hstate.birds = { x: hstate.birds && hstate.birds.dir > 0 ? HFIX.winX0 - 40 : HFIX.winX1 + 40, y: 240 + Math.random()*80, dir: (hstate.birds && hstate.birds.dir > 0) ? -1 : 1, ph: 0 };
+  }
+  if (hstate.birds){
+    hstate.birds.x += hstate.birds.dir * 46 * dt; hstate.birds.ph += dt * 7;
+    if (hstate.birds.x < HFIX.winX0 - 80 || hstate.birds.x > HFIX.winX1 + 80) hstate.birds = null;
+  }
+  // the cat
+  if (hHas('cat')){
+    var cat = hItem('cat');
+    hstate.catT -= dt;
+    if (hstate.catT <= 0 && !hstate.catMove){
+      hstate.catT = 50 + Math.random()*80;
+      var opts = HANCHORS.cat.filter(function(a){ return Math.abs(a[0] - cat.x) > 80; });
+      var pick = opts[Math.floor(Math.random()*opts.length)];
+      hstate.catMove = { tx: pick[0], tz: pick[1] };
+    }
+    if (hstate.catMove){
+      var cdx = hstate.catMove.tx - cat.x;
+      if (Math.abs(cdx) < 4){ cat.x = hstate.catMove.tx; cat.z = hstate.catMove.tz; hstate.catMove = null; }
+      else cat.x += Math.sign(cdx) * 26 * dt;
+    }
+  }
+  // dust motes drift in the light
+  hstate.dust.forEach(function(m){
+    m.y += m.vy * dt; m.ph += dt;
+    if (m.y > 560){ m.y = 240; m.x = 880 + Math.random()*300; }
+  });
+  // camera follows him, only him
+  var camTarget = clamp(man.x - W*0.5, W/(2*zoom) - W/2, ROOM_W - W/2 - W/(2*zoom));
+  camX += (camTarget - camX) * (1 - Math.exp(-dt*2.4));
+}
+// ---- the room, drawn ----
+function hDrawItem(d, it, dt, t, dark, carried){
+  var x = it.x - camX, z = it.z, y = gy(z), s = zs(z);
+  if (d.kind === 'rug'){
+    g.fillStyle = '#a8542f';
+    g.beginPath(); g.ellipse(x, gy(0.745) + 6, 150 * s, 26 * s, 0, 0, 6.29); g.fill();
+    g.fillStyle = '#c17a4a';
+    g.beginPath(); g.ellipse(x, gy(0.745) + 6, 128 * s, 20 * s, 0, 0, 6.29); g.fill();
+    g.fillStyle = '#a8542f';
+    g.beginPath(); g.ellipse(x, gy(0.745) + 6, 96 * s, 14 * s, 0, 0, 6.29); g.fill();
+    g.fillStyle = '#d9a441';
+    g.beginPath(); g.ellipse(x, gy(0.745) + 6, 60 * s, 8.5 * s, 0, 0, 6.29); g.fill();
+  } else if (d.kind === 'plant'){
+    g.fillStyle = '#b4663a';
+    g.beginPath(); g.moveTo(x - 13*s, y - 24*s); g.lineTo(x + 13*s, y - 24*s); g.lineTo(x + 9*s, y); g.lineTo(x - 9*s, y); g.closePath(); g.fill();
+    g.strokeStyle = '#4e6b3a'; g.lineWidth = 3*s; g.lineCap = 'round';
+    g.beginPath(); g.moveTo(x, y - 24*s); g.quadraticCurveTo(x + 2*s, y - 44*s, x, y - 62*s); g.stroke();
+    g.fillStyle = '#5f7f42';
+    [[-14,-52,-0.7],[13,-58,0.6],[-10,-70,-0.4],[11,-74,0.5],[0,-80,0]].forEach(function(l){
+      g.save(); g.translate(x + l[0]*s, y + l[1]*s); g.rotate(l[2]);
+      g.beginPath(); g.ellipse(0, 0, 11*s, 5.5*s, 0, 0, 6.29); g.fill(); g.restore();
+    });
+  } else if (d.kind === 'hplant'){
+    var hx = x;
+    g.strokeStyle = 'rgba(90,70,50,0.8)'; g.lineWidth = 1.6*s;
+    g.beginPath(); g.moveTo(hx, 210); g.lineTo(hx, 268); g.stroke();
+    g.fillStyle = '#b4663a';
+    g.beginPath(); g.moveTo(hx - 12*s, 268); g.lineTo(hx + 12*s, 268); g.lineTo(hx + 8*s, 284); g.lineTo(hx - 8*s, 284); g.closePath(); g.fill();
+    g.strokeStyle = '#5f7f42'; g.lineWidth = 2.4*s; g.lineCap = 'round';
+    for (var f = 0; f < 6; f++){
+      var fx = hx - 10*s + f * 4*s;
+      g.beginPath(); g.moveTo(fx, 284);
+      g.quadraticCurveTo(fx + Math.sin(time*0.7 + f)*3, 300 + (f%3)*8, fx + Math.sin(time*0.5 + f*2)*4, 310 + (f%3)*10);
+      g.stroke();
+    }
+  } else if (d.kind === 'splant'){
+    g.fillStyle = '#b4663a';
+    g.beginPath(); g.moveTo(x - 7*s, gy(0.50) - 142); g.lineTo(x + 7*s, gy(0.50) - 142); g.lineTo(x + 5*s, gy(0.50) - 132); g.lineTo(x - 5*s, gy(0.50) - 132); g.closePath(); g.fill();
+    g.fillStyle = '#6b8a4a';
+    [[-4,-146],[0,-150],[4,-146]].forEach(function(l){ g.beginPath(); g.arc(x + l[0]*s, gy(0.50) + l[1], 3.4*s, 0, 6.29); g.fill(); });
+  } else if (d.kind === 'shelf'){
+    g.fillStyle = '#7a5a3c';
+    g.fillRect(x - 55*s, y - 150*s, 110*s, 150*s);
+    g.fillStyle = '#8f6c48';
+    g.fillRect(x - 50*s, y - 145*s, 100*s, 140*s);
+    var bookC = ['#a8542f','#5f7a52','#c95f8a','#d9a441','#7d8b6f','#b4622f','#8a5a3b'];
+    for (var sh = 0; sh < 3; sh++){
+      var sy = y - 145*s + sh * 47*s;
+      g.fillStyle = '#7a5a3c'; g.fillRect(x - 50*s, sy + 38*s, 100*s, 5*s);
+      for (var b = 0; b < 7; b++){
+        var bh = 24*s + ((b*13+sh*7) % 10)*s;
+        g.fillStyle = bookC[(b + sh*3) % bookC.length];
+        g.fillRect(x - 46*s + b * 13.4*s, sy + 38*s - bh, 10.5*s, bh);
+      }
+    }
+  } else if (d.kind === 'chair'){
+    g.fillStyle = '#8a4a3a';
+    roundRect(x - 34*s, y - 74*s, 68*s, 74*s, 10*s); g.fill();          // back+base
+    g.fillStyle = '#a85f4a';
+    roundRect(x - 30*s, y - 40*s, 60*s, 34*s, 8*s); g.fill();           // seat
+    g.fillStyle = '#8a4a3a';
+    roundRect(x - 40*s, y - 46*s, 16*s, 40*s, 7*s); g.fill();           // arms
+    roundRect(x + 24*s, y - 46*s, 16*s, 40*s, 7*s); g.fill();
+    g.fillStyle = '#d9a441';
+    roundRect(x - 26*s, y - 38*s, 52*s, 12*s, 6*s); g.fill();           // cushion
+  } else if (d.kind === 'desk'){
+    g.fillStyle = '#7a5a3c';
+    g.fillRect(x - 58*s, y - 52*s, 116*s, 7*s);                          // top
+    g.fillRect(x - 52*s, y - 45*s, 8*s, 45*s);                           // legs
+    g.fillRect(x + 44*s, y - 45*s, 8*s, 45*s);
+    g.fillStyle = '#f2efe0';
+    g.save(); g.translate(x - 20*s, y - 55*s); g.rotate(-0.06); g.fillRect(-12*s, -4*s, 24*s, 6*s); g.restore();  // paper
+    g.fillStyle = '#2e2119'; g.beginPath(); g.arc(x + 16*s, y - 56*s, 3.4*s, 0, 6.29); g.fill();                 // ink
+    // chair tucked in
+    g.fillStyle = '#8f6c48';
+    roundRect(x + 66*s, y - 44*s, 26*s, 44*s, 6*s); g.fill();
+  } else if (d.kind === 'lamp'){
+    g.strokeStyle = '#5b4a3d'; g.lineWidth = 3.4*s;
+    g.beginPath(); g.moveTo(x, y); g.lineTo(x, y - 108*s); g.stroke();
+    g.beginPath(); g.moveTo(x - 12*s, y); g.lineTo(x + 12*s, y); g.stroke();
+    g.fillStyle = '#e8c98a';
+    g.beginPath(); g.moveTo(x - 16*s, y - 134*s); g.lineTo(x + 16*s, y - 134*s); g.lineTo(x + 22*s, y - 106*s); g.lineTo(x - 22*s, y - 106*s); g.closePath(); g.fill();
+    if (dark > 0.3){
+      var lg = g.createRadialGradient(x, y - 118*s, 6, x, y - 118*s, 130*s);
+      lg.addColorStop(0, 'rgba(255,214,140,' + (0.34 * dark).toFixed(3) + ')');
+      lg.addColorStop(1, 'rgba(255,214,140,0)');
+      g.fillStyle = lg; g.beginPath(); g.arc(x, y - 118*s, 130*s, 0, 6.29); g.fill();
+    }
+  } else if (d.kind === 'table'){
+    g.fillStyle = '#8f6c48';
+    g.beginPath(); g.ellipse(x, y - 40*s, 24*s, 6*s, 0, 0, 6.29); g.fill();
+    g.fillRect(x - 3.4*s, y - 40*s, 6.8*s, 40*s);
+    g.beginPath(); g.ellipse(x, y, 14*s, 4*s, 0, 0, 6.29); g.fill();
+    g.fillStyle = '#f2efe0';
+    g.beginPath(); g.arc(x + 6*s, y - 45*s, 4*s, 0, 6.29); g.fill();     // cup
+    g.strokeStyle = '#f2efe0'; g.lineWidth = 1.6*s;
+    g.beginPath(); g.arc(x + 11*s, y - 45*s, 2.6*s, -1.2, 1.2); g.stroke();
+  } else if (d.kind === 'art'){
+    var ax = x, ay = 330;
+    g.fillStyle = '#5b4a3d'; g.fillRect(ax - 46, ay - 34, 92, 68);
+    g.fillStyle = '#f2efe0'; g.fillRect(ax - 40, ay - 28, 80, 56);
+    // the valley, remembered: tiny scene
+    g.fillStyle = '#a5d2de'; g.fillRect(ax - 36, ay - 24, 72, 26);
+    g.fillStyle = '#bccbb2';
+    g.beginPath(); g.moveTo(ax - 36, ay + 2); g.quadraticCurveTo(ax - 12, ay - 20, ax + 8, ay - 2); g.quadraticCurveTo(ax + 22, ay - 14, ax + 36, ay - 4); g.lineTo(ax + 36, ay + 2); g.closePath(); g.fill();
+    g.fillStyle = '#94a968'; g.fillRect(ax - 36, ay + 2, 72, 22);
+    g.fillStyle = '#5f7a52'; g.beginPath(); g.arc(ax - 20, ay + 2, 5, 0, 6.29); g.fill(); g.beginPath(); g.arc(ax + 18, ay + 3, 4, 0, 6.29); g.fill();
+  } else if (d.kind === 'kettle'){
+    var kx = HFIX.fireX - camX, ky = gy(0.60) - 4;
+    g.strokeStyle = 'rgba(40,32,24,0.7)'; g.lineWidth = 2*s;
+    g.beginPath(); g.moveTo(kx, ky - 92*s); g.lineTo(kx, ky - 58*s); g.stroke();
+    g.fillStyle = '#b87333';
+    g.beginPath(); g.ellipse(kx, ky - 48*s, 12*s, 9*s, 0, 0, 6.29); g.fill();
+    g.beginPath(); g.moveTo(kx + 10*s, ky - 52*s); g.lineTo(kx + 17*s, ky - 58*s); g.lineTo(kx + 14*s, ky - 48*s); g.closePath(); g.fill();
+    g.strokeStyle = '#8a5426'; g.lineWidth = 2.4*s;
+    g.beginPath(); g.arc(kx, ky - 58*s, 7*s, 3.4, 6.0); g.stroke();
+  } else if (d.kind === 'cat'){
+    var cx = it.x - camX, cy2 = gy(it.z);
+    var breathe = 1 + Math.sin(time * 1.4) * 0.03;
+    if (hstate.catMove){
+      // walking cat
+      g.fillStyle = '#3a3230';
+      g.beginPath(); g.ellipse(cx, cy2 - 8*s, 13*s, 6.5*s, 0, 0, 6.29); g.fill();
+      g.beginPath(); g.arc(cx + 12*s, cy2 - 13*s, 4.6*s, 0, 6.29); g.fill();
+      g.beginPath(); g.moveTo(cx + 9*s, cy2 - 16*s); g.lineTo(cx + 10.5*s, cy2 - 21*s); g.lineTo(cx + 12.5*s, cy2 - 16.5*s); g.closePath(); g.fill();
+      g.beginPath(); g.moveTo(cx + 13*s, cy2 - 16*s); g.lineTo(cx + 15*s, cy2 - 21*s); g.lineTo(cx + 16.5*s, cy2 - 15.5*s); g.closePath(); g.fill();
+      g.strokeStyle = '#3a3230'; g.lineWidth = 2.6*s; g.lineCap = 'round';
+      g.beginPath(); g.moveTo(cx - 12*s, cy2 - 8*s); g.quadraticCurveTo(cx - 20*s, cy2 - 14*s, cx - 18*s, cy2 - 22*s + Math.sin(time*6)*3); g.stroke();
+      g.lineWidth = 2.2*s;
+      g.beginPath(); g.moveTo(cx - 6*s, cy2 - 3*s); g.lineTo(cx - 6*s, cy2); g.stroke();
+      g.beginPath(); g.moveTo(cx + 6*s, cy2 - 3*s); g.lineTo(cx + 6*s, cy2); g.stroke();
+    } else {
+      // curled asleep, breathing
+      g.fillStyle = '#3a3230';
+      g.beginPath(); g.ellipse(cx, cy2 - 5*s, 15*s * breathe, 7.5*s * breathe, 0, 0, 6.29); g.fill();
+      g.beginPath(); g.arc(cx + 11*s, cy2 - 8*s * breathe, 5*s, 0, 6.29); g.fill();
+      g.beginPath(); g.moveTo(cx + 8*s, cy2 - 11.5*s); g.lineTo(cx + 9.5*s, cy2 - 16*s); g.lineTo(cx + 11.5*s, cy2 - 11.5*s); g.closePath(); g.fill();
+      g.beginPath(); g.moveTo(cx + 12*s, cy2 - 11.5*s); g.lineTo(cx + 14*s, cy2 - 16*s); g.lineTo(cx + 15.5*s, cy2 - 11*s); g.closePath(); g.fill();
+      g.strokeStyle = '#3a3230'; g.lineWidth = 2.4*s; g.lineCap = 'round';
+      g.beginPath(); g.moveTo(cx - 13*s, cy2 - 4*s); g.quadraticCurveTo(cx - 18*s, cy2 - 2*s, cx - 14*s, cy2 - 1*s); g.stroke();
+    }
+  }
+}
+function drawHouse(now, dt, t, pal, dark, wind){
+  var floorTop = gy(0.50);
+  // wall - warm plaster, dims with the day
+  var wallC = lerpC(hex('#e6d3b4'), hex('#35302f'), dark * 0.72);
+  var wallC2 = lerpC(hex('#d9c4a4'), hex('#2b2726'), dark * 0.72);
+  var wg = g.createLinearGradient(0, 0, 0, floorTop);
+  wg.addColorStop(0, wallC); wg.addColorStop(1, wallC2);
+  g.fillStyle = wg; g.fillRect(bgX, bgY, bgW, floorTop - bgY);
+  // floor - wood boards
+  var flC = lerpC(hex('#b08254'), hex('#41332a'), dark * 0.66);
+  g.fillStyle = flC; g.fillRect(bgX, floorTop, bgW, bgY + bgH - floorTop);
+  g.strokeStyle = 'rgba(60,40,26,0.28)'; g.lineWidth = 1.4;
+  for (var pb = 0; pb < 7; pb++){
+    var py = floorTop + (pb + 1) * (H - floorTop) / 8;
+    g.beginPath(); g.moveTo(bgX, py); g.lineTo(bgX + bgW, py); g.stroke();
+  }
+  for (var pb2 = 0; pb2 < 26; pb2++){
+    var px2 = ((pb2 * 173.3) % (ROOM_W + 200)) - 100 - camX;
+    var py2 = floorTop + ((pb2 * 37) % 7 + 1) * (H - floorTop) / 8;
+    g.beginPath(); g.moveTo(px2, py2); g.lineTo(px2, py2 + (H - floorTop) / 8); g.stroke();
+  }
+  // baseboard + wainscot
+  g.fillStyle = lerpC(hex('#8f6c48'), hex('#33292a'), dark * 0.7);
+  g.fillRect(bgX, floorTop - 8, bgW, 10);
+  g.fillStyle = lerpC(hex('#d3bb98'), hex('#2e2929'), dark * 0.72);
+  g.fillRect(bgX, floorTop - 96, bgW, 88);
+  g.fillStyle = lerpC(hex('#b89a70'), hex('#282424'), dark * 0.72);
+  g.fillRect(bgX, floorTop - 100, bgW, 6);
+  // the clock, ticking above it all
+  var clkX = 1330 - camX, clkY = 286;
+  g.fillStyle = lerpC(hex('#f2efe0'), hex('#3a3432'), dark * 0.7);
+  g.beginPath(); g.arc(clkX, clkY, 21, 0, 6.29); g.fill();
+  g.strokeStyle = lerpC(hex('#5b4a3d'), hex('#221e1c'), dark * 0.7); g.lineWidth = 3;
+  g.beginPath(); g.arc(clkX, clkY, 21, 0, 6.29); g.stroke();
+  g.lineWidth = 2; g.lineCap = 'round';
+  var hourA = ((t * 24 % 12) / 12) * 6.28 - 1.57, minA = ((t * 24 * 60 % 60) / 60) * 6.28 - 1.57;
+  g.beginPath(); g.moveTo(clkX, clkY); g.lineTo(clkX + Math.cos(hourA) * 10, clkY + Math.sin(hourA) * 10); g.stroke();
+  g.beginPath(); g.moveTo(clkX, clkY); g.lineTo(clkX + Math.cos(minA) * 15, clkY + Math.sin(minA) * 15); g.stroke();
+  // a small empty frame, waiting for whatever he hangs
+  g.strokeStyle = lerpC(hex('#8f6c48'), hex('#2e2624'), dark * 0.7); g.lineWidth = 4;
+  g.strokeRect(720 - camX - 26, 300, 52, 40);
+
+  // ---- window: the valley, framed ----
+  var wx0 = HFIX.winX0 - camX, wx1 = HFIX.winX1 - camX, wy0 = 218, wy1 = floorTop - 130;
+  g.save();
+  g.beginPath(); g.rect(wx0, wy0, wx1 - wx0, wy1 - wy0); g.clip();
+  var sky = g.createLinearGradient(0, wy0, 0, wy1);
+  sky.addColorStop(0, rgba(pal.skyTop, 1)); sky.addColorStop(1, rgba(pal.skyBot, 1));
+  g.fillStyle = sky; g.fillRect(wx0, wy0, wx1 - wx0, wy1 - wy0);
+  // sun / moon arcs across the glass
+  if (t > 0.24 && t < 0.76){
+    var sk2 = (t - 0.25) / 0.5;
+    var sunX = wx0 + (wx1 - wx0) * (0.08 + 0.84 * sk2), sunY = wy1 - Math.sin(sk2 * Math.PI) * (wy1 - wy0) * 0.7 - 14;
+    var sg = g.createRadialGradient(sunX, sunY, 2, sunX, sunY, 44);
+    sg.addColorStop(0, 'rgba(255,226,160,0.95)'); sg.addColorStop(1, 'rgba(255,226,160,0)');
+    g.fillStyle = sg; g.beginPath(); g.arc(sunX, sunY, 44, 0, 6.29); g.fill();
+    g.fillStyle = '#f7dfae'; g.beginPath(); g.arc(sunX, sunY, 13, 0, 6.29); g.fill();
+  }
+  if (dark > 0.3){
+    var mk = (t >= 0.75) ? (t - 0.75) / 0.5 : (t + 0.25) / 0.5;
+    var moonX = wx0 + (wx1 - wx0) * (0.1 + 0.8 * mk), moonY = wy1 - Math.sin(mk * Math.PI) * (wy1 - wy0) * 0.55 - 14;
+    g.fillStyle = 'rgba(240,236,220,' + clamp(dark,0,1).toFixed(2) + ')';
+    g.beginPath(); g.arc(moonX, moonY, 10, 0, 6.29); g.fill();
+    g.fillStyle = sky ? rgba(pal.skyTop,1) : '#000';
+    g.beginPath(); g.arc(moonX + 4, moonY - 2, 8.4, 0, 6.29); g.fill();
+    stars.forEach(function(st){
+      var sx2 = wx0 + st.x * (wx1 - wx0), sy2 = wy0 + st.y * 0.9 * (wy1 - wy0) * 0.6;
+      var a2 = dark * (0.35 + 0.65 * Math.abs(Math.sin(time*0.8 + st.tw)));
+      g.fillStyle = 'rgba(245,238,214,' + (a2*0.9).toFixed(3) + ')';
+      g.beginPath(); g.arc(sx2, sy2, st.r * 0.8, 0, 6.29); g.fill();
+    });
+  }
+  // drifting clouds
+  for (var cl = 0; cl < 2; cl++){
+    var cx2 = wx0 + (((time * 4 + cl * 260) % (wx1 - wx0 + 180)) - 90);
+    var cy3 = wy0 + 26 + cl * 34;
+    g.fillStyle = rgba(pal.cloud, 0.85);
+    g.beginPath(); g.ellipse(cx2, cy3, 34, 10, 0, 0, 6.29); g.fill();
+    g.beginPath(); g.ellipse(cx2 + 22, cy3 + 4, 24, 8, 0, 0, 6.29); g.fill();
+  }
+  // the far ridge + a tree, so the glass holds depth
+  g.fillStyle = rgba(pal.ridgeFar, 0.9);
+  g.beginPath(); g.moveTo(wx0, wy1);
+  g.quadraticCurveTo(wx0 + (wx1-wx0)*0.25, wy1 - 56, wx0 + (wx1-wx0)*0.55, wy1 - 20);
+  g.quadraticCurveTo(wx0 + (wx1-wx0)*0.8, wy1 - 44, wx1, wy1 - 12);
+  g.lineTo(wx1, wy1); g.closePath(); g.fill();
+  g.fillStyle = rgba(pal.trees, 0.95);
+  var trx = wx0 + (wx1-wx0)*0.72;
+  g.beginPath(); g.arc(trx, wy1 - 26, 13, 0, 6.29); g.fill();
+  g.fillRect(trx - 2, wy1 - 26, 4, 26);
+  // birds
+  if (hstate.birds){
+    g.strokeStyle = rgba(pal.trees, 0.9); g.lineWidth = 1.6; g.lineCap = 'round';
+    for (var bd = 0; bd < 4; bd++){
+      var bx2 = hstate.birds.x - camX + bd * 16 - (bd%2)*8, by2 = hstate.birds.y + (bd%2)*9;
+      var flap = Math.sin(hstate.birds.ph + bd) * 3.4;
+      g.beginPath(); g.moveTo(bx2 - 5, by2 + flap); g.quadraticCurveTo(bx2, by2 - 2.4, bx2 + 5, by2 + flap); g.stroke();
+    }
+  }
+  // rain on the glass
+  if (hstate.rain > 0.03){
+    g.strokeStyle = 'rgba(225,235,240,' + (hstate.rain * 0.5).toFixed(3) + ')';
+    g.lineWidth = 1.1; g.lineCap = 'round';
+    for (var ri2 = 0; ri2 < 40; ri2++){
+      var rx3 = wx0 + ((ri2 * 61.7) % (wx1 - wx0));
+      var ry3 = wy0 + ((ri2 * 97.3 + time * 520) % (wy1 - wy0));
+      g.beginPath(); g.moveTo(rx3, ry3); g.lineTo(rx3 + 1.6, ry3 + 11); g.stroke();
+    }
+  }
+  g.restore();   // unclip the glass
+  // mullions + frame + sill
+  g.strokeStyle = lerpC(hex('#7a5a3c'), hex('#2e2624'), dark * 0.7); g.lineWidth = 7;
+  g.strokeRect(wx0 - 3, wy0 - 3, (wx1 - wx0) + 6, (wy1 - wy0) + 6);
+  g.lineWidth = 4.6;
+  g.beginPath(); g.moveTo((wx0+wx1)/2, wy0); g.lineTo((wx0+wx1)/2, wy1); g.stroke();
+  g.beginPath(); g.moveTo(wx0, (wy0+wy1)/2); g.lineTo(wx1, (wy0+wy1)/2); g.stroke();
+  g.fillStyle = lerpC(hex('#8f6c48'), hex('#33292a'), dark * 0.7);
+  g.fillRect(wx0 - 14, wy1 + 4, (wx1 - wx0) + 28, 12);
+  // curtains
+  g.fillStyle = lerpC(hex('#c98a5a'), hex('#4a3430'), dark * 0.66);
+  [[wx0 - 26, 1], [wx1 + 26, -1]].forEach(function(cc){
+    g.beginPath();
+    g.moveTo(cc[0], wy0 - 12);
+    g.quadraticCurveTo(cc[0] + cc[1]*10, (wy0+wy1)/2, cc[0] + cc[1]*4 + Math.sin(time*0.6)*2, wy1 + 6);
+    g.lineTo(cc[0] + cc[1]*22, wy1 + 6);
+    g.quadraticCurveTo(cc[0] + cc[1]*26, (wy0+wy1)/2, cc[0] + cc[1]*18, wy0 - 12);
+    g.closePath(); g.fill();
+  });
+  // daylight shaft + dust
+  if (dark < 0.5){
+    var shaftA = (0.5 - dark) * 0.24;
+    g.fillStyle = 'rgba(255,236,190,' + shaftA.toFixed(3) + ')';
+    g.beginPath();
+    g.moveTo(wx0 + 16, wy0 + 10); g.lineTo(wx1 - 16, wy0 + 10);
+    g.lineTo(wx1 + 120, floorTop + 60); g.lineTo(wx0 + 60, floorTop + 60);
+    g.closePath(); g.fill();
+    hstate.dust.forEach(function(m){
+      var mx = m.x - camX + Math.sin(m.ph) * 8;
+      if (mx < wx0 - 20 || mx > wx1 + 140) return;
+      g.fillStyle = 'rgba(255,240,200,' + (shaftA * 1.6 * (0.4 + 0.6*Math.abs(Math.sin(m.ph*2)))).toFixed(3) + ')';
+      g.beginPath(); g.arc(mx, m.y, 1.4, 0, 6.29); g.fill();
+    });
+  }
+
+  // ---- door (opens when he comes home with something) ----
+  var dx2 = HFIX.doorX - camX, dy1 = floorTop;
+  g.fillStyle = lerpC(hex('#6b4e34'), hex('#241e1c'), dark * 0.7);
+  g.fillRect(dx2 - 46, dy1 - 196, 92, 196);
+  var ajar = (man.state === 'h-fetch' && hstate.fetchT > 0.4) ? 1 : 0;
+  g.fillStyle = lerpC(hex('#8f6c48'), hex('#33292a'), dark * 0.7);
+  g.fillRect(dx2 - 38 - ajar*20, dy1 - 186, 76, 186);
+  if (ajar){
+    g.fillStyle = rgba(pal.skyTop, 0.9);
+    g.fillRect(dx2 - 38 + 76 - ajar*20, dy1 - 186, ajar * 20, 186);
+  }
+  g.strokeStyle = 'rgba(40,28,18,0.5)'; g.lineWidth = 2;
+  g.strokeRect(dx2 - 30 - ajar*20, dy1 - 170, 60, 70);
+  g.strokeRect(dx2 - 30 - ajar*20, dy1 - 90, 60, 70);
+  g.fillStyle = '#d9a441';
+  g.beginPath(); g.arc(dx2 + 24 - ajar*20, dy1 - 96, 3.6, 0, 6.29); g.fill();
+  // coat hook + mat
+  g.strokeStyle = lerpC(hex('#5b4a3d'), hex('#26201e'), dark * 0.7); g.lineWidth = 3;
+  g.beginPath(); g.moveTo(dx2 + 74, dy1 - 150); g.lineTo(dx2 + 74, dy1 - 142); g.arc(dx2 + 70, dy1 - 142, 4, 0, 3.14, true); g.stroke();
+  g.fillStyle = lerpC(hex('#a8542f'), hex('#3a2a26'), dark * 0.7);
+  g.beginPath(); g.ellipse(dx2, dy1 + 8, 44, 8, 0, 0, 6.29); g.fill();
+
+  // ---- hearth ----
+  var fx3 = HFIX.fireX - camX, fy = floorTop + 30;
+  g.fillStyle = lerpC(hex('#9a8a7a'), hex('#3a3432'), dark * 0.7);
+  g.beginPath();
+  g.moveTo(fx3 - 78, fy); g.lineTo(fx3 - 78, fy - 128);
+  g.quadraticCurveTo(fx3, fy - 176, fx3 + 78, fy - 128);
+  g.lineTo(fx3 + 78, fy); g.closePath(); g.fill();
+  g.fillStyle = lerpC(hex('#241e1c'), hex('#171414'), dark * 0.4);
+  g.beginPath();
+  g.moveTo(fx3 - 56, fy); g.lineTo(fx3 - 56, fy - 108);
+  g.quadraticCurveTo(fx3, fy - 148, fx3 + 56, fy - 108);
+  g.lineTo(fx3 + 56, fy); g.closePath(); g.fill();
+  g.fillStyle = lerpC(hex('#8f6c48'), hex('#33292a'), dark * 0.7);
+  g.fillRect(fx3 - 88, fy - 136, 176, 12);   // mantle
+  // on the mantle: candle + small jar
+  g.fillStyle = '#f2efe0'; g.fillRect(fx3 + 48, fy - 156, 7, 20);
+  if (dark > 0.3){
+    var cf = 1 + Math.sin(time * 9) * 0.2;
+    g.fillStyle = 'rgba(255,190,90,0.95)';
+    g.beginPath(); g.ellipse(fx3 + 51.5, fy - 160, 2.6*cf, 4.6*cf, 0, 0, 6.29); g.fill();
+  }
+  g.fillStyle = lerpC(hex('#7d8b6f'), hex('#2e2a26'), dark * 0.7);
+  g.beginPath(); g.ellipse(fx3 - 52, fy - 146, 9, 10, 0, 0, 6.29); g.fill();
+  // the fire itself, lit when it's dim
+  var fireLit = dark > 0.28 || t < 0.3;
+  if (fireLit){
+    g.fillStyle = '#5b3a26';
+    g.save(); g.translate(fx3, fy - 8); g.rotate(0.2); g.fillRect(-22, -5, 44, 9); g.restore();
+    g.save(); g.translate(fx3, fy - 12); g.rotate(-0.16); g.fillRect(-20, -5, 40, 9); g.restore();
+    if (Math.random() < 0.55) hstate.fireP.push({ x: (Math.random()-0.5)*22, y: 0, vy: -(20+Math.random()*26), life: 0.5+Math.random()*0.6, s: 3+Math.random()*3.4 });
+    var fg2 = g.createRadialGradient(fx3, fy - 30, 8, fx3, fy - 30, 200);
+    fg2.addColorStop(0, 'rgba(255,170,80,' + (0.30 + dark*0.22).toFixed(3) + ')');
+    fg2.addColorStop(1, 'rgba(255,170,80,0)');
+    g.fillStyle = fg2; g.beginPath(); g.arc(fx3, fy - 30, 200, 0, 6.29); g.fill();
+  }
+  hstate.fireP.forEach(function(p){ p.y += p.vy*dt; p.x += Math.sin(time*6+p.y*0.2)*8*dt; p.life -= dt; });
+  hstate.fireP = hstate.fireP.filter(function(p){ return p.life > 0; });
+  hstate.fireP.forEach(function(p){
+    g.fillStyle = 'rgba(255,' + Math.round(140 + p.life*160) + ',60,' + clamp(p.life*1.4, 0, 0.9).toFixed(3) + ')';
+    g.beginPath(); g.arc(fx3 + p.x, fy - 14 + p.y, p.s * clamp(p.life*2,0.3,1), 0, 6.29); g.fill();
+  });
+
+  // ---- furniture + him, sorted by depth ----
+  var dl = [];
+  hstate.items.forEach(function(it){
+    var d = hDef(it.id);
+    if (!d || d.kind === 'art' || d.kind === 'hplant' || d.kind === 'splant' || d.kind === 'kettle') return;
+    if (d.kind === 'rug'){ hDrawItem(d, it, dt, t, dark); return; }   // rugs under everything
+    dl.push({ z: it.z, f: function(){ hDrawItem(d, it, dt, t, dark); } });
+  });
+  // bed - always his
+  dl.push({ z: 0.70, f: function(){
+    var bx3 = HFIX.bedX - camX, by3 = gy(0.70);
+    var s = zs(0.70);
+    g.fillStyle = lerpC(hex('#7a5a3c'), hex('#2e2624'), dark * 0.7);
+    g.fillRect(bx3 + 66*s, by3 - 96*s, 12*s, 96*s);                       // headboard
+    g.fillRect(bx3 - 78*s, by3 - 26*s, 156*s, 26*s);                      // frame
+    g.fillStyle = lerpC(hex('#e8dcc2'), hex('#4a423e'), dark * 0.66);
+    roundRect(bx3 - 74*s, by3 - 40*s, 148*s, 20*s, 8*s); g.fill();        // mattress
+    g.fillStyle = lerpC(hex('#f2efe0'), hex('#554e4a'), dark * 0.6);
+    g.beginPath(); g.ellipse(bx3 + 52*s, by3 - 44*s, 18*s, 9*s, 0, 0, 6.29); g.fill();  // pillow
+    var sleeping = man.state === 'h-sleep';
+    g.fillStyle = lerpC(hex('#a8542f'), hex('#3a2c28'), dark * 0.6);
+    if (sleeping){
+      var br = 1 + Math.sin(time * 1.1) * 0.04;
+      g.beginPath();                                                       // him, under the blanket
+      g.moveTo(bx3 - 74*s, by3 - 34*s);
+      g.quadraticCurveTo(bx3 - 20*s, by3 - (52 + 10*br)*s, bx3 + 34*s, by3 - 40*s);
+      g.lineTo(bx3 + 34*s, by3 - 26*s); g.lineTo(bx3 - 74*s, by3 - 26*s); g.closePath(); g.fill();
+      g.fillStyle = lerpC(hex('#8a5a3b'), hex('#3a2c28'), dark * 0.5);
+      g.beginPath(); g.arc(bx3 + 44*s, by3 - 44*s, 8.6*s, 0, 6.29); g.fill();   // his head on the pillow
+      g.fillStyle = '#2e2119';
+      g.beginPath(); g.arc(bx3 + 46*s, by3 - 49*s, 7.6*s, 3.4, 5.9); g.fill();
+    } else {
+      g.beginPath();                                                       // folded blanket at the foot
+      g.moveTo(bx3 - 74*s, by3 - 40*s); g.lineTo(bx3 - 20*s, by3 - 40*s); g.lineTo(bx3 - 20*s, by3 - 26*s); g.lineTo(bx3 - 74*s, by3 - 26*s); g.closePath(); g.fill();
+    }
+  }});
+  // him
+  if (man.state !== 'h-sleep'){
+    dl.push({ z: man.z + 0.001, f: function(){
+      var x = man.x - camX;
+      var y = gy(man.z) - Math.sin(man.hop*Math.PI)*16*zs(man.z), s = zs(man.z) * 1.3;
+      drawMan(x, y, s, man.visFace, man.step, man.mode === 'sleep' ? 'idle' : man.mode, false, man.squash, man.stretchAmt, man.tipAmt, man.look, man.hat, man.waveAmt);
+      // whatever he's carrying rides in front of him
+      if (hstate.carryBox || (hstate.moving && hstate.moving.carried)){
+        g.fillStyle = '#b4663a';
+        g.save(); g.translate(x, y - 34*s); g.rotate(0.04 * man.visFace);
+        g.beginPath(); g.moveTo(-11*s, -6*s); g.lineTo(11*s, -6*s); g.lineTo(8*s, 8*s); g.lineTo(-8*s, 8*s); g.closePath(); g.fill();
+        g.fillStyle = '#5f7f42';
+        g.beginPath(); g.ellipse(0, -11*s, 9*s, 5*s, 0, 0, 6.29); g.fill();
+        g.restore();
+      }
+    }});
+  }
+  dl.sort(function(a,b){ return a.z - b.z; });
+  dl.forEach(function(d2){ d2.f(); });
+  // wall + hanging pieces above the depth sort
+  hstate.items.forEach(function(it){
+    var d = hDef(it.id);
+    if (!d) return;
+    if (d.kind === 'art' || d.kind === 'hplant' || d.kind === 'splant' || d.kind === 'kettle') hDrawItem(d, it, dt, t, dark);
+  });
+
+  // night settles on the room
+  if (dark > 0.12){
+    g.fillStyle = 'rgba(24,20,36,' + (dark * 0.30).toFixed(3) + ')';
+    g.fillRect(bgX, bgY, bgW, bgH);
+    // warm pools re-cut through the dark
+    if (fireLit){
+      var fg3 = g.createRadialGradient(HFIX.fireX - camX, floorTop - 10, 10, HFIX.fireX - camX, floorTop - 10, 260);
+      fg3.addColorStop(0, 'rgba(255,170,80,' + (0.24 + dark*0.2).toFixed(3) + ')'); fg3.addColorStop(1, 'rgba(255,170,80,0)');
+      g.fillStyle = fg3; g.beginPath(); g.arc(HFIX.fireX - camX, floorTop - 10, 260, 0, 6.29); g.fill();
+    }
+  }
+}
+
+// ---- house frame wrapper + input ----
+function houseFrame(now, dt, t, pal, dark, wind){
+  houseUpdate(dt, now, t, dark);
+  g.save();
+  g.translate(zcx, zcy); g.scale(zoom, zoom); g.translate(-zcx, -zcy);
+  drawHouse(now, dt, t, pal, dark, wind);
+  g.restore();
+  var bbm = bubs[man.id];
+  if (bbm){
+    bbm.el.style.left = ((man.x - camX - zcx) * zoom + zcx) + 'px';
+    bbm.el.style.top = ((gy(man.z) - zcy) * zoom + zcy - 96 * zs(man.z) * zoom) + 'px';
+  }
+  if (DEBUG){
+    window.__zoom = function(z2){ targetZoom = clamp(z2 || 1, ZMIN, ZMAX); return targetZoom; };
+    window.__zget = function(){ return { zoom: +zoom.toFixed(3), targetZoom: targetZoom, camX: Math.round(camX), manX: Math.round(man.x), W: W, H: H }; };
+    window.__hstate = function(){ return man.state + ' @' + Math.round(man.x) + ',' + man.z.toFixed(2) + ' items=[' + hstate.items.map(function(i){ return i.id; }).join(',') + '] next=' + Math.round(Math.abs(hstate.next) - worldAge) + 's'; };
+    window.__hnext = function(){ hstate.next = worldAge; return 'arriving'; };
+    window.__htap = function(x2, z2){ manualUntil = performance.now() + 20000; hWalkTo(x2 || 1000, z2 || 0.7, null); };
+    window.__hact = function(id){ var s = hSpots().filter(function(k){ return k.id === id; })[0]; if (s) hWalkTo(s.x, s.z, s); return s ? s.act : 'no spot'; };
+    window.__hgive = function(n){ n = n || 1; for (var i = 0; i < n; i++) hPlaceNext(false, currentT); return hstate.items.length; };
+    window.__hrearr = function(){ hstate.rearr = worldAge; return 'due'; };
+  }
+  window.__dbg = DEBUG ? ('house | ' + man.state + ' @' + Math.round(man.x) + ' items=' + hstate.items.length + ' t=' + t.toFixed(2)) : '';
+  requestAnimationFrame(frame);
+}
+if (HOUSE_MODE){
+  var tapStart = null, tapTimer = null;
+  canvas.addEventListener('pointerdown', function(e){ tapStart = { x: e.clientX, y: e.clientY, t: performance.now() }; });
+  canvas.addEventListener('pointerup', function(e){
+    if (!tapStart) return;
+    var moved = Math.hypot(e.clientX - tapStart.x, e.clientY - tapStart.y);
+    var held = performance.now() - tapStart.t;
+    tapStart = null;
+    if (moved > 12 || held > 500) return;
+    var cx2 = e.clientX, cy2 = e.clientY;
+    var doTap = function(){ hTap(cx2, cy2, performance.now()); };
+    if (zoom > 1.03){ clearTimeout(tapTimer); tapTimer = setTimeout(doTap, 290); }
+    else doTap();
+  });
+  canvas.addEventListener('dblclick', function(){ clearTimeout(tapTimer); targetZoom = 1; });
+  window.addEventListener('keydown', function(e){
+    var k = e.key.toLowerCase();
+    if (k === 'arrowleft' || k === 'a') hKeys.left = true;
+    else if (k === 'arrowright' || k === 'd') hKeys.right = true;
+    else if (k === 'arrowup' || k === 'w') hKeys.up = true;
+    else if (k === 'arrowdown' || k === 's') hKeys.down = true;
+    else return;
+    e.preventDefault();
+  });
+  window.addEventListener('keyup', function(e){
+    var k = e.key.toLowerCase();
+    if (k === 'arrowleft' || k === 'a') hKeys.left = false;
+    if (k === 'arrowright' || k === 'd') hKeys.right = false;
+    if (k === 'arrowup' || k === 'w') hKeys.up = false;
+    if (k === 'arrowdown' || k === 's') hKeys.down = false;
+  });
+}
+
+document.getElementById('found-total').textContent = HOUSE_MODE ? HITEMS_DEF.length : PLACES.length;
+if (HOUSE_MODE){
+  var foundDiv = document.getElementById('found');
+  foundDiv.childNodes[foundDiv.childNodes.length - 1].nodeValue = 'pieces home';
+  var notesHead = document.getElementById('notes-head');
+  if (notesHead && notesHead.childNodes[0]) notesHead.childNodes[0].nodeValue = 'notes from home';
+}
 var found = 0;
 
 // meadow dressing
@@ -340,9 +1139,10 @@ chars.forEach(function(c, i){
 var man = chars[0];   // alpha's character - the camera follows him
 var camX = clamp(man.x - W*0.5, 0, WORLD_W - W);
 // alpha's zoom lens - pinch / wheel changes the view, never the camera's mind
-var ZMIN = 0.55, ZMAX = 2.2;
+var ZMIN = 0.62, ZMAX = 2.4;
 var zoom = 1, targetZoom = 1;
 var zcy = 0;   // vertical lens anchor - eases toward the followed one when zoomed in
+var zcx = 0, bgX = 0, bgY = 0, bgW = 0, bgH = 0;
 
 function pickTarget(c){
   var un = PLACES.filter(function(p){ return !p.found; });
@@ -803,6 +1603,22 @@ if (awaySec > 0) worldAge += awaySec;
 if (save.t != null && !Q.has('t')) T0 = ((save.t + awaySec / DAY_LEN) % 1 + 1) % 1;
 var build = { active: null, nextAt: 75 + Math.random()*60 };
 if (save.next > 0) build.nextAt = save.next;
+if (HOUSE_MODE){
+  if (Array.isArray(save.hitems)) save.hitems.forEach(function(it){ if (hDef(it.id) && !hHas(it.id)) hstate.items.push({ id: it.id, x: it.x, z: it.z }); });
+  hstate.next = save.hnext > 0 ? save.hnext : worldAge + 45;
+  hstate.rearr = save.hrearr > 0 ? save.hrearr : worldAge + 300 + Math.random()*200;
+  if (save.house){ man.x = clamp(save.house.x, 100, ROOM_W - 100); man.z = clamp(save.house.z, 0.58, 0.76); }
+  else { man.x = 1030; man.z = 0.68; }
+  man.tx = man.x; man.tz = man.z; man.state = 'h-idle'; man.speed = 82;
+  // things he brought home while alpha was away
+  var hcaught = 0;
+  while (hstate.next > 0 && hstate.next <= worldAge && hstate.items.length < HITEMS_DEF.length && hcaught < 12){
+    hPlaceNext(true); hstate.next += 150 + 160; hcaught++;
+  }
+  if (hstate.items.length >= HITEMS_DEF.length) hstate.next = worldAge + 1e9;
+  hCount();
+  camX = clamp(man.x - W*0.5, 0, Math.max(0, ROOM_W - W));
+}
 var currentT = T0;
 if (typeof save.zoom === 'number' && !isNaN(save.zoom)) zoom = targetZoom = clamp(save.zoom, ZMIN, ZMAX);
 // worn paths - the valley remembers where they walk
@@ -829,6 +1645,12 @@ function saveWorld(){
     save.notes = notesData.slice(0, 8);
     save.noteCount = noteCount;
     save.zoom = targetZoom;
+    if (HOUSE_MODE){
+      save.house = { x: Math.round(man.x), z: +man.z.toFixed(3) };
+      save.hitems = hstate.items;
+      save.hnext = Math.round(Math.abs(hstate.next));
+      save.hrearr = Math.round(hstate.rearr);
+    }
     localStorage.setItem(SAVE_KEY, JSON.stringify(save));
   } catch(e){}
 }
@@ -871,7 +1693,8 @@ save.found.forEach(function(id){
   var p = PLACES.filter(function(k){ return k.id === id; })[0];
   if (p && !p.found){ p.found = true; found++; }
 });
-document.getElementById('found-n').textContent = found;
+if (!HOUSE_MODE) document.getElementById('found-n').textContent = found;
+if (HOUSE_MODE) hCount();
 noteCount = save.noteCount || 0;
 if (noteCount > 0) document.getElementById('notes-n').textContent = noteCount;
 notesData = save.notes.slice(0, 8);
@@ -1203,8 +2026,10 @@ function frame(now){
   var trackK = clamp((zoom - 1) / (ZMAX - 1), 0, 1);
   var zcyT = H * 0.55 + trackK * (gy(man.z) - 125 * zs(man.z) - H * 0.55);
   zcy += (zcyT - zcy) * Math.min(1, dt * 2);
-  var zcx = W * 0.5;
-  var bgX = zcx - zcx / zoom, bgY = zcy - zcy / zoom, bgW = W / zoom, bgH = H / zoom;
+  zcx = W * 0.5;
+  bgX = zcx - zcx / zoom; bgY = zcy - zcy / zoom; bgW = W / zoom; bgH = H / zoom;
+
+  if (HOUSE_MODE){ houseFrame(now, dt, t, pal, dark, wind); return; }
 
   // ---- encounters - two characters near each other stop and talk ----
   for (var pi5 = 0; pi5 < chars.length; pi5++){
