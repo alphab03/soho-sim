@@ -213,8 +213,8 @@ function creekD(x, z){
 // alpha's character lives here. tap / keys walk him; left alone he lives on his own:
 // he brings things home, arranges them, tends his plants, sleeps when it's late.
 var HOUSE_MODE = !Q.has('valley');
-var ROOM_W = 2100;
-var HFIX = { doorX: 160, winX0: 880, winX1: 1180, fireX: 560, bedX: 1920 };
+var ROOM_W = 1500;
+var HFIX = { doorX: 130, winX0: 720, winX1: 980, fireX: 420, bedX: 1320 };
 var HITEMS_DEF = [
   { id:'rug',    name:'a braided rug',      sub:'soft underfoot',          kind:'rug' },
   { id:'shelf',  name:'the bookshelf',      sub:'he built it himself',     kind:'shelf',  act:'browse', build:true },
@@ -231,18 +231,18 @@ var HITEMS_DEF = [
 ];
 function hDef(id){ for (var i = 0; i < HITEMS_DEF.length; i++) if (HITEMS_DEF[i].id === id) return HITEMS_DEF[i]; return null; }
 var HANCHORS = {
-  rug:    [[680,0.745],[1400,0.745]],
-  plant1: [[1260,0.60],[310,0.60],[1560,0.60]],
-  shelf:  [[1650,0.585],[350,0.585]],
-  chair:  [[745,0.72],[1210,0.72]],
-  desk:   [[1370,0.605],[250,0.605]],
-  lamp:   [[1490,0.60],[650,0.62]],
-  plant2: [[905],[1155]],
-  table:  [[810,0.68],[1450,0.68]],
-  art:    [[1430],[720]],
-  plant3: [[955],[1110]],
-  kettle: [[560,0.60]],
-  cat:    [[690,0.755],[1900,0.73],[1040,0.63],[745,0.72]]
+  rug:    [[560,0.745],[980,0.745]],
+  plant1: [[1020,0.60],[280,0.60],[1180,0.60]],
+  shelf:  [[1120,0.585],[280,0.585]],
+  chair:  [[590,0.72],[870,0.72]],
+  desk:   [[1060,0.605],[260,0.605]],
+  lamp:   [[1150,0.60],[500,0.62]],
+  plant2: [[748],[952]],
+  table:  [[660,0.68],[1040,0.68]],
+  art:    [[1050],[610]],
+  plant3: [[795],[920]],
+  kettle: [[420,0.60]],
+  cat:    [[560,0.755],[1310,0.73],[760,0.63],[590,0.72]]
 };
 var HACT_LINES = {
   gaze:   ['the light changes.','weather coming.','quiet out there.','the valley, framed.'],
@@ -287,9 +287,9 @@ function hFreeAnchor(id){
 }
 function hSpots(){
   var out = [
-    { id:'window', name:'the window', sub:'the valley, framed', x:1030, z:0.655, act:'gaze' },
-    { id:'fire',   name:'the hearth', sub:'warm hands',         x:640,  z:0.70,  act:'warm' },
-    { id:'bed',    name:'the bed',    sub:'where the day ends', x:1900, z:0.72,  act:'sleep' }
+    { id:'window', name:'the window', sub:'the valley, framed', x:850,  z:0.655, act:'gaze' },
+    { id:'fire',   name:'the hearth', sub:'warm hands',         x:470,  z:0.70,  act:'warm' },
+    { id:'bed',    name:'the bed',    sub:'where the day ends', x:1320, z:0.72,  act:'sleep' }
   ];
   hstate.items.forEach(function(it){
     var d = hDef(it.id);
@@ -552,7 +552,7 @@ function houseUpdate(dt, now, t, dark){
   // dust motes drift in the light
   hstate.dust.forEach(function(m){
     m.y += m.vy * dt; m.ph += dt;
-    if (m.y > 560){ m.y = 240; m.x = 880 + Math.random()*300; }
+    if (m.y > 560){ m.y = 240; m.x = HFIX.winX0 + Math.random()*(HFIX.winX1 - HFIX.winX0); }
   });
   // camera follows him, only him
   var camTarget = clamp(man.x - W*0.5, W/(2*zoom) - W/2, ROOM_W - W/2 - W/(2*zoom));
@@ -741,8 +741,18 @@ function drawHouse(now, dt, t, pal, dark, wind){
   var wg = g.createLinearGradient(0, ceilY, 0, floorTop);
   wg.addColorStop(0, wallC); wg.addColorStop(1, wallC2);
   g.fillStyle = wg; g.fillRect(bgX, ceilY + 5, bgW, floorTop - ceilY - 5);
+  // ceiling beams - the bones of the room
+  [260, 640, 1060, 1340].forEach(function(bx2){
+    g.fillStyle = lerpC(hex('#8f6c48'), hex('#241e1c'), dark * 0.7);
+    g.fillRect(bx2 - 8 - camX, ceilY + 5, 16, 26);
+    g.fillStyle = 'rgba(60,40,26,0.25)';
+    g.fillRect(bx2 + 4 - camX, ceilY + 5, 4, 26);
+  });
+  // picture rail
+  g.fillStyle = lerpC(hex('#b89a70'), hex('#282424'), dark * 0.72);
+  g.fillRect(bgX, ceilY + 62, bgW, 3);
   // the pendant light over his spot
-  var pdx = 680 - camX;
+  var pdx = 570 - camX;
   g.strokeStyle = lerpC(hex('#5b4a3d'), hex('#1a1616'), dark * 0.7); g.lineWidth = 2.4;
   g.beginPath(); g.moveTo(pdx, ceilY + 5); g.lineTo(pdx, ceilY + 58); g.stroke();
   g.fillStyle = lerpC(hex('#c98a5a'), hex('#33292a'), dark * 0.7);
@@ -776,7 +786,7 @@ function drawHouse(now, dt, t, pal, dark, wind){
   g.fillStyle = lerpC(hex('#b89a70'), hex('#282424'), dark * 0.72);
   g.fillRect(bgX, floorTop - 100, bgW, 6);
   // the clock, ticking above it all
-  var clkX = 1330 - camX, clkY = 286;
+  var clkX = 1090 - camX, clkY = 286;
   g.fillStyle = lerpC(hex('#f2efe0'), hex('#3a3432'), dark * 0.7);
   g.beginPath(); g.arc(clkX, clkY, 21, 0, 6.29); g.fill();
   g.strokeStyle = lerpC(hex('#5b4a3d'), hex('#221e1c'), dark * 0.7); g.lineWidth = 3;
@@ -787,7 +797,7 @@ function drawHouse(now, dt, t, pal, dark, wind){
   g.beginPath(); g.moveTo(clkX, clkY); g.lineTo(clkX + Math.cos(minA) * 15, clkY + Math.sin(minA) * 15); g.stroke();
   // a small empty frame, waiting for whatever he hangs
   g.strokeStyle = lerpC(hex('#8f6c48'), hex('#2e2624'), dark * 0.7); g.lineWidth = 4;
-  g.strokeRect(420 - camX - 26, 296, 52, 40);
+  g.strokeRect(250 - camX - 26, 296, 52, 40);
 
   // ---- window: the valley, framed ----
   var wx0 = HFIX.winX0 - camX, wx1 = HFIX.winX1 - camX, wy0 = ceilY + 22, wy1 = floorTop - 130;
@@ -865,6 +875,9 @@ function drawHouse(now, dt, t, pal, dark, wind){
   g.beginPath(); g.moveTo(wx0, (wy0+wy1)/2); g.lineTo(wx1, (wy0+wy1)/2); g.stroke();
   g.fillStyle = lerpC(hex('#8f6c48'), hex('#33292a'), dark * 0.7);
   g.fillRect(wx0 - 14, wy1 + 4, (wx1 - wx0) + 28, 12);
+  g.fillRect(wx0 - 4, wy1 + 16, (wx1 - wx0) + 8, 7);
+  g.strokeStyle = lerpC(hex('#8f6c48'), hex('#33292a'), dark * 0.7); g.lineWidth = 4;
+  g.strokeRect(wx0 - 12, wy0 - 12, (wx1 - wx0) + 24, (wy1 - wy0) + 24);
   // curtains
   g.fillStyle = lerpC(hex('#c98a5a'), hex('#4a3430'), dark * 0.66);
   [[wx0 - 26, 1], [wx1 + 26, -1]].forEach(function(cc){
@@ -893,6 +906,10 @@ function drawHouse(now, dt, t, pal, dark, wind){
 
   // ---- door (opens when he comes home with something) ----
   var dx2 = HFIX.doorX - camX, dy1 = floorTop;
+  g.fillStyle = lerpC(hex('#8f6c48'), hex('#33292a'), dark * 0.7);
+  g.fillRect(dx2 - 54, dy1 - 206, 108, 10);
+  g.fillRect(dx2 - 54, dy1 - 206, 10, 206);
+  g.fillRect(dx2 + 44, dy1 - 206, 10, 206);
   g.fillStyle = lerpC(hex('#6b4e34'), hex('#241e1c'), dark * 0.7);
   g.fillRect(dx2 - 46, dy1 - 196, 92, 196);
   var ajar = (man.state === 'h-fetch' && hstate.fetchT > 0.4) ? 1 : 0;
@@ -913,6 +930,16 @@ function drawHouse(now, dt, t, pal, dark, wind){
   g.fillStyle = lerpC(hex('#a8542f'), hex('#3a2a26'), dark * 0.7);
   g.beginPath(); g.ellipse(dx2, dy1 + 8, 44, 8, 0, 0, 6.29); g.fill();
 
+  // the chimney breast - the room's spine, ceiling to floor
+  var brX = HFIX.fireX - camX;
+  var brG = g.createLinearGradient(0, ceilY, 0, floorTop);
+  brG.addColorStop(0, lerpC(hex('#dcc7a2'), hex('#322d2b'), dark * 0.72));
+  brG.addColorStop(1, lerpC(hex('#cdb694'), hex('#292524'), dark * 0.72));
+  g.fillStyle = brG; g.fillRect(brX - 108, ceilY + 5, 216, floorTop - ceilY - 3);
+  g.fillStyle = 'rgba(60,40,26,0.12)'; g.fillRect(brX + 100, ceilY + 5, 8, floorTop - ceilY - 3);
+  g.fillStyle = 'rgba(255,246,226,0.30)'; g.fillRect(brX - 108, ceilY + 5, 5, floorTop - ceilY - 3);
+  g.fillStyle = lerpC(hex('#8f6c48'), hex('#33292a'), dark * 0.7);
+  g.fillRect(brX - 114, floorTop - 14, 228, 16);
   // ---- hearth ----
   var fx3 = HFIX.fireX - camX, fy = floorTop + 30;
   g.fillStyle = lerpC(hex('#9a8a7a'), hex('#3a3432'), dark * 0.7);
@@ -1708,9 +1735,17 @@ if (HOUSE_MODE){
   hstate.next = save.hnext > 0 ? save.hnext : worldAge + 45;
   hstate.rearr = save.hrearr > 0 ? save.hrearr : worldAge + 300 + Math.random()*200;
   if (save.hbuild && hDef(save.hbuild.id) && !hHas(save.hbuild.id)) hstate.build = save.hbuild;
+  // v19: the room got smaller - remap old-room positions once
+  if (!save.hv2){
+    var hScale = function(x){ return 100 + (x - 100) * (1300 / 1900); };
+    hstate.items.forEach(function(it){ it.x = hScale(it.x); });
+    if (hstate.build) hstate.build.x = hScale(hstate.build.x);
+    if (save.house) save.house.x = hScale(save.house.x);
+    save.hv2 = 1;
+  }
   if (hstate.build && awaySec > 0) hstate.build.prog = Math.min(40, hstate.build.prog + awaySec * 0.15);
   if (save.house){ man.x = clamp(save.house.x, 100, ROOM_W - 100); man.z = clamp(save.house.z, 0.58, 0.76); }
-  else { man.x = 1030; man.z = 0.68; }
+  else { man.x = 850; man.z = 0.68; }
   man.tx = man.x; man.tz = man.z; man.state = 'h-idle'; man.speed = 82;
   // things he brought home while alpha was away
   var hcaught = 0;
