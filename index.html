@@ -217,13 +217,13 @@ var ROOM_W = 2100;
 var HFIX = { doorX: 160, winX0: 880, winX1: 1180, fireX: 560, bedX: 1920 };
 var HITEMS_DEF = [
   { id:'rug',    name:'a braided rug',      sub:'soft underfoot',          kind:'rug' },
+  { id:'shelf',  name:'the bookshelf',      sub:'he built it himself',     kind:'shelf',  act:'browse', build:true },
   { id:'plant1', name:'a fiddle-leaf fig',  sub:'needs the light',         kind:'plant',  act:'tend' },
-  { id:'shelf',  name:'a bookshelf',        sub:'borrowed stories',        kind:'shelf',  act:'browse' },
-  { id:'chair',  name:'the armchair',       sub:'his spot',                kind:'chair',  act:'read' },
-  { id:'desk',   name:'a writing desk',     sub:'ink and paper',           kind:'desk',   act:'write' },
+  { id:'desk',   name:'the writing desk',   sub:'he built it himself',     kind:'desk',   act:'write',  build:true },
+  { id:'chair',  name:'the armchair',       sub:'his spot',                kind:'chair',  act:'read',   build:true },
   { id:'lamp',   name:'a floor lamp',       sub:'a pool of light',         kind:'lamp' },
   { id:'plant2', name:'a hanging fern',     sub:'by the window',           kind:'hplant', act:'tend' },
-  { id:'table',  name:'a side table',       sub:'tea things',              kind:'table' },
+  { id:'table',  name:'the side table',     sub:'he built it himself',     kind:'table',  build:true },
   { id:'art',    name:'a framed print',     sub:'the valley, remembered',  kind:'art' },
   { id:'plant3', name:'a little succulent', sub:'on the sill',             kind:'splant' },
   { id:'kettle', name:'a copper kettle',    sub:'tea, properly',           kind:'kettle', act:'tea' },
@@ -255,6 +255,7 @@ var HACT_LINES = {
   tea:    ['steep.','properly warm.','tea time.'],
   pet:    ['there it is.','purr.','who chose who.']
 };
+var hCeil = 210;
 var hstate = {
   items: [],                 // placed: { id, x, z }
   next: -1,                  // worldAge of next arrival (-1 = unset until load)
@@ -359,10 +360,19 @@ function hWake(now){
 // ---- per-frame update ----
 function houseUpdate(dt, now, t, dark){
   // arrivals + rearranging run on the world's own clock
-  if (hstate.next > 0 && worldAge >= hstate.next && man.state !== 'h-fetch' && man.state !== 'h-place' && man.state !== 'h-sleep' && hstate.items.length < HITEMS_DEF.length){
-    hstate.next = -hstate.next;   // hold until the fetch below finishes
-    man.state = 'h-fetch'; hstate.fetchT = 0; hstate.carry = HITEMS_DEF.filter(function(d){ return !hHas(d.id); })[0];
-    hWalkTo(0, 0, null); man.state = 'h-fetch'; man.tx = 210; man.tz = 0.70; man.speed = 88;
+  if (hstate.next > 0 && worldAge >= hstate.next && man.state !== 'h-fetch' && man.state !== 'h-place' && man.state !== 'h-sleep' && !hstate.build && hstate.items.length < HITEMS_DEF.length){
+    var nextDef = HITEMS_DEF.filter(function(d){ return !hHas(d.id); })[0];
+    if (nextDef.build){
+      // he measures it out first, then builds it with his own hands
+      var ba = hFreeAnchor(nextDef.id);
+      hstate.build = { id: nextDef.id, x: ba[0], z: ba[1] !== undefined ? ba[1] : 0.6, prog: 0, stage: 0 };
+      hstate.next = -hstate.next;
+      sayFor(man, 'this goes here.', 2200);
+    } else {
+      hstate.next = -hstate.next;   // hold until the fetch below finishes
+      man.state = 'h-fetch'; hstate.fetchT = 0; hstate.carry = nextDef;
+      hWalkTo(0, 0, null); man.state = 'h-fetch'; man.tx = 210; man.tz = 0.70; man.speed = 88;
+    }
   }
   if (hstate.rearr > 0 && worldAge >= hstate.rearr && hstate.items.length >= 4 && man.state === 'h-idle' && hstate.idleT > 2){
     var movable = hstate.items.filter(function(it){ var d = hDef(it.id); return d && ['chair','table','lamp','plant1','desk'].indexOf(d.kind) >= 0; });
@@ -382,7 +392,7 @@ function houseUpdate(dt, now, t, dark){
       if (man.state === 'h-walk'){
         if (man.hAct){
           man.state = 'h-act'; hstate.act = man.hAct; man.hAct = null;
-          hstate.actT = hstate.act.act === 'sleep' ? 1e9 : 9 + Math.random()*8;
+          hstate.actT = hstate.act.act === 'sleep' ? 1e9 : (hstate.act.act === 'build' ? 10 + Math.random()*7 : 9 + Math.random()*8);
           if (hstate.act.act === 'sleep'){ man.state = 'h-sleep'; man.sleepT = 0; }
           else if (hstate.act.act === 'read' || hstate.act.act === 'write') man.face = hstate.act.id === 'desk' ? -1 : -1;
           else man.face = 1;
@@ -437,6 +447,31 @@ function houseUpdate(dt, now, t, dark){
       if (Math.abs(man.vx) > 4) man.face = man.vx > 0 ? 1 : -1;
       if (man.state === 'h-fetch' || man.state === 'h-place' || man.state === 'h-shift') hstate.fetchT += dt * 0.001; // keep fetchT for pauses only
     }
+  } else if (man.state === 'h-act' && hstate.act && hstate.act.act === 'build'){
+    hstate.actT -= dt;
+    if (hstate.build){
+      hstate.build.prog += dt;
+      if (Math.random() < dt * 1.4) hstate.dustP = (hstate.dustP || []).concat([{ x: hstate.build.x + (Math.random()-0.5)*60, z: hstate.build.z + 0.03, y: 0, vy: -(14+Math.random()*18), life: 0.5+Math.random()*0.5, s: 1.6+Math.random()*2 }]);
+      if (hstate.build.stage === 0 && hstate.build.prog > 16){ hstate.build.stage = 1; sayFor(man, 'coming along.', 1800); }
+      if (hstate.build.stage === 1 && hstate.build.prog > 42){
+        var built = hstate.build;
+        hstate.items.push({ id: built.id, x: built.x, z: built.z });
+        hstate.build = null;
+        hstate.actT = 0;
+        hCount();
+        var bd = hDef(built.id);
+        showToast(bd);
+        addNote('built ' + bd.name, 'making it his', 'home', t);
+        sayFor(man, 'there. built it.', 2400);
+        man.hop = 1; man.tipT = 1.3;
+        hstate.next = worldAge + 150 + Math.random()*160;
+      }
+    }
+    if (Math.random() < dt * 0.10) sayFor(man, ['hammer it true.','measure twice.','his own two hands.'][Math.floor(Math.random()*3)], 2200);
+    if (hstate.actT <= 0){
+      man.state = 'h-idle'; hstate.idleT = 0; hstate.act = null;
+      if (hstate.build) hstate.idleT = 2.6;   // a breath, then back at it
+    }
   } else if (man.state === 'h-act'){
     hstate.actT -= dt;
     man.step += dt * 2;
@@ -454,8 +489,13 @@ function houseUpdate(dt, now, t, dark){
     hstate.idleT += dt;
     if (now > manualUntil && hstate.idleT > 3.5 && man.state === 'h-idle'){
       if (hstate.next < 0) hstate.next = worldAge + 40;   // first visit: something arrives soon
-      var s = hPickActivity(t, dark);
-      if (s){ hWalkTo(s.x + (s.act === 'sleep' ? 0 : (Math.random()-0.5)*20), s.z, s); }
+      if (hstate.build && Math.random() < 0.7){
+        man.state = 'h-walk'; man.tx = clamp(hstate.build.x + 34, 100, ROOM_W - 100); man.tz = clamp(hstate.build.z + 0.06, 0.58, 0.76);
+        man.hAct = { id: 'build', act: 'build' }; man.speed = 84;
+      } else {
+        var s = hPickActivity(t, dark);
+        if (s){ hWalkTo(s.x + (s.act === 'sleep' ? 0 : (Math.random()-0.5)*20), s.z, s); }
+      }
     }
   }
   // keyboard driving
@@ -478,7 +518,7 @@ function houseUpdate(dt, now, t, dark){
   man.tipAmt = man.tipT > 0 ? Math.sin(Math.PI * clamp((1.3 - man.tipT) / 1.3, 0, 1)) : 0;
   if (man.hop > 0) man.hop = Math.max(0, man.hop - dt*2.4);
   man.visFace += (man.face - man.visFace) * Math.min(1, dt * 10);
-  man.mode = man.state === 'h-sleep' ? 'sleep' : (man.spd > 6 ? 'walk' : (man.state === 'h-act' && (hstate.act && (hstate.act.act === 'read' || hstate.act.act === 'write')) ? 'sit' : (man.state === 'h-act' && hstate.act && hstate.act.act === 'tend' ? 'work' : 'idle')));
+  man.mode = man.state === 'h-sleep' ? 'sleep' : (man.spd > 6 ? 'walk' : (man.state === 'h-act' && (hstate.act && (hstate.act.act === 'read' || hstate.act.act === 'write')) ? 'sit' : (man.state === 'h-act' && hstate.act && (hstate.act.act === 'tend' || hstate.act.act === 'build') ? 'work' : 'idle')));
   // weather beyond the glass
   hstate.rainT -= dt;
   if (hstate.rainT <= 0){ hstate.raining = !hstate.raining; hstate.rainT = hstate.raining ? 40 + Math.random()*70 : 80 + Math.random()*160; }
@@ -543,7 +583,7 @@ function hDrawItem(d, it, dt, t, dark, carried){
   } else if (d.kind === 'hplant'){
     var hx = x;
     g.strokeStyle = 'rgba(90,70,50,0.8)'; g.lineWidth = 1.6*s;
-    g.beginPath(); g.moveTo(hx, 210); g.lineTo(hx, 268); g.stroke();
+    g.beginPath(); g.moveTo(hx, (hCeil || 210) + 5); g.lineTo(hx, 268); g.stroke();
     g.fillStyle = '#b4663a';
     g.beginPath(); g.moveTo(hx - 12*s, 268); g.lineTo(hx + 12*s, 268); g.lineTo(hx + 8*s, 284); g.lineTo(hx - 8*s, 284); g.closePath(); g.fill();
     g.strokeStyle = '#5f7f42'; g.lineWidth = 2.4*s; g.lineCap = 'round';
@@ -661,14 +701,60 @@ function hDrawItem(d, it, dt, t, dark, carried){
     }
   }
 }
+function hDrawBuild(B, dt, dark){
+  var x = B.x - camX, y = gy(B.z), s = zs(B.z);
+  // chalk outline where it will stand
+  g.strokeStyle = 'rgba(242,239,224,0.55)'; g.lineWidth = 2; g.setLineDash([7,6]);
+  g.strokeRect(x - 52*s, y - 104*s, 104*s, 104*s);
+  g.setLineDash([]);
+  // plank pile waiting beside it
+  g.fillStyle = lerpC(hex('#b08254'), hex('#4a3a30'), dark * 0.6);
+  g.save(); g.translate(x - 74*s, y - 4*s); g.rotate(0.03); g.fillRect(-24*s, -6*s, 48*s, 6*s); g.restore();
+  g.save(); g.translate(x - 72*s, y - 11*s); g.rotate(-0.04); g.fillRect(-24*s, -6*s, 48*s, 6*s); g.restore();
+  g.save(); g.translate(x - 75*s, y - 18*s); g.rotate(0.02); g.fillRect(-22*s, -6*s, 44*s, 6*s); g.restore();
+  // the frame rises as he works
+  if (B.stage >= 1){
+    g.fillStyle = lerpC(hex('#9a7448'), hex('#3e322a'), dark * 0.6);
+    g.fillRect(x - 44*s, y - 92*s, 8*s, 92*s);
+    g.fillRect(x + 36*s, y - 92*s, 8*s, 92*s);
+    g.fillRect(x - 44*s, y - 96*s, 88*s, 8*s);
+    g.fillRect(x - 44*s, y - 52*s, 88*s, 6*s);
+  }
+  // tools of the trade
+  g.strokeStyle = lerpC(hex('#5b4a3d'), hex('#26201e'), dark * 0.6); g.lineWidth = 2.6*s; g.lineCap = 'round';
+  g.beginPath(); g.moveTo(x + 66*s, y - 2*s); g.lineTo(x + 78*s, y - 14*s); g.stroke();
+  g.fillStyle = lerpC(hex('#8a8a8a'), hex('#3a3a3a'), dark * 0.6);
+  g.save(); g.translate(x + 79*s, y - 15*s); g.rotate(0.8); g.fillRect(-6*s, -2.6*s, 12*s, 5.2*s); g.restore();
+}
 function drawHouse(now, dt, t, pal, dark, wind){
   var floorTop = gy(0.50);
+  // a real room: low ceiling overhead, the wall a band between it and the floor
+  var ceilY = floorTop - 340;
+  hCeil = ceilY;
+  g.fillStyle = lerpC(hex('#cbb491'), hex('#211d1c'), dark * 0.75);
+  g.fillRect(bgX, bgY, bgW, ceilY - bgY);
+  g.fillStyle = lerpC(hex('#b89a70'), hex('#1c1817'), dark * 0.75);
+  g.fillRect(bgX, ceilY, bgW, 5);
   // wall - warm plaster, dims with the day
   var wallC = lerpC(hex('#e6d3b4'), hex('#35302f'), dark * 0.72);
   var wallC2 = lerpC(hex('#d9c4a4'), hex('#2b2726'), dark * 0.72);
-  var wg = g.createLinearGradient(0, 0, 0, floorTop);
+  var wg = g.createLinearGradient(0, ceilY, 0, floorTop);
   wg.addColorStop(0, wallC); wg.addColorStop(1, wallC2);
-  g.fillStyle = wg; g.fillRect(bgX, bgY, bgW, floorTop - bgY);
+  g.fillStyle = wg; g.fillRect(bgX, ceilY + 5, bgW, floorTop - ceilY - 5);
+  // the pendant light over his spot
+  var pdx = 680 - camX;
+  g.strokeStyle = lerpC(hex('#5b4a3d'), hex('#1a1616'), dark * 0.7); g.lineWidth = 2.4;
+  g.beginPath(); g.moveTo(pdx, ceilY + 5); g.lineTo(pdx, ceilY + 58); g.stroke();
+  g.fillStyle = lerpC(hex('#c98a5a'), hex('#33292a'), dark * 0.7);
+  g.beginPath(); g.moveTo(pdx - 18, ceilY + 58); g.lineTo(pdx + 18, ceilY + 58); g.lineTo(pdx + 26, ceilY + 82); g.lineTo(pdx - 26, ceilY + 82); g.closePath(); g.fill();
+  if (dark > 0.3){
+    g.fillStyle = '#f7dfae';
+    g.beginPath(); g.arc(pdx, ceilY + 86, 5, 0, 6.29); g.fill();
+    var pg = g.createRadialGradient(pdx, ceilY + 88, 4, pdx, ceilY + 88, 150);
+    pg.addColorStop(0, 'rgba(255,214,140,' + (0.30 * dark).toFixed(3) + ')');
+    pg.addColorStop(1, 'rgba(255,214,140,0)');
+    g.fillStyle = pg; g.beginPath(); g.arc(pdx, ceilY + 88, 150, 0, 6.29); g.fill();
+  }
   // floor - wood boards
   var flC = lerpC(hex('#b08254'), hex('#41332a'), dark * 0.66);
   g.fillStyle = flC; g.fillRect(bgX, floorTop, bgW, bgY + bgH - floorTop);
@@ -701,10 +787,10 @@ function drawHouse(now, dt, t, pal, dark, wind){
   g.beginPath(); g.moveTo(clkX, clkY); g.lineTo(clkX + Math.cos(minA) * 15, clkY + Math.sin(minA) * 15); g.stroke();
   // a small empty frame, waiting for whatever he hangs
   g.strokeStyle = lerpC(hex('#8f6c48'), hex('#2e2624'), dark * 0.7); g.lineWidth = 4;
-  g.strokeRect(720 - camX - 26, 300, 52, 40);
+  g.strokeRect(420 - camX - 26, 296, 52, 40);
 
   // ---- window: the valley, framed ----
-  var wx0 = HFIX.winX0 - camX, wx1 = HFIX.winX1 - camX, wy0 = 218, wy1 = floorTop - 130;
+  var wx0 = HFIX.winX0 - camX, wx1 = HFIX.winX1 - camX, wy0 = ceilY + 22, wy1 = floorTop - 130;
   g.save();
   g.beginPath(); g.rect(wx0, wy0, wx1 - wx0, wy1 - wy0); g.clip();
   var sky = g.createLinearGradient(0, wy0, 0, wy1);
@@ -877,6 +963,20 @@ function drawHouse(now, dt, t, pal, dark, wind){
     if (d.kind === 'rug'){ hDrawItem(d, it, dt, t, dark); return; }   // rugs under everything
     dl.push({ z: it.z, f: function(){ hDrawItem(d, it, dt, t, dark); } });
   });
+  // the work in progress
+  if (hstate.build){
+    var B2 = hstate.build;
+    dl.push({ z: B2.z, f: function(){ hDrawBuild(B2, dt, dark); } });
+  }
+  // sawdust over his work
+  if (hstate.dustP){
+    hstate.dustP.forEach(function(p){ p.y += p.vy*dt; p.x += 12*dt; p.life -= dt; });
+    hstate.dustP = hstate.dustP.filter(function(p){ return p.life > 0; });
+    hstate.dustP.forEach(function(p){
+      g.fillStyle = 'rgba(190,160,120,' + clamp(p.life, 0, 0.6).toFixed(3) + ')';
+      g.beginPath(); g.arc(p.x - camX, gy(p.z) - 60 + p.y, p.s, 0, 6.29); g.fill();
+    });
+  }
   // bed - always his
   dl.push({ z: 0.70, f: function(){
     var bx3 = HFIX.bedX - camX, by3 = gy(0.70);
@@ -1607,6 +1707,8 @@ if (HOUSE_MODE){
   if (Array.isArray(save.hitems)) save.hitems.forEach(function(it){ if (hDef(it.id) && !hHas(it.id)) hstate.items.push({ id: it.id, x: it.x, z: it.z }); });
   hstate.next = save.hnext > 0 ? save.hnext : worldAge + 45;
   hstate.rearr = save.hrearr > 0 ? save.hrearr : worldAge + 300 + Math.random()*200;
+  if (save.hbuild && hDef(save.hbuild.id) && !hHas(save.hbuild.id)) hstate.build = save.hbuild;
+  if (hstate.build && awaySec > 0) hstate.build.prog = Math.min(40, hstate.build.prog + awaySec * 0.15);
   if (save.house){ man.x = clamp(save.house.x, 100, ROOM_W - 100); man.z = clamp(save.house.z, 0.58, 0.76); }
   else { man.x = 1030; man.z = 0.68; }
   man.tx = man.x; man.tz = man.z; man.state = 'h-idle'; man.speed = 82;
@@ -1650,6 +1752,7 @@ function saveWorld(){
       save.hitems = hstate.items;
       save.hnext = Math.round(Math.abs(hstate.next));
       save.hrearr = Math.round(hstate.rearr);
+      save.hbuild = hstate.build;
     }
     localStorage.setItem(SAVE_KEY, JSON.stringify(save));
   } catch(e){}
